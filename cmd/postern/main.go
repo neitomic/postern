@@ -45,5 +45,6 @@ func newRoot() *cobra.Command {
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newJoinCmd())
 	cmd.AddCommand(newEnrollMachineCmd())
+	cmd.AddCommand(newAgentCmd())
 	return cmd
 }

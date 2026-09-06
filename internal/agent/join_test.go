@@ -39,6 +39,22 @@ func setupMachine(t *testing.T) (Paths, config.Client) {
 	return p, cfg
 }
 
+func setupEnrolled(t *testing.T) (Paths, config.Client, State) {
+	t.Helper()
+	p, cfg := setupMachine(t)
+	st := State{
+		Name:        "macbook",
+		Port:        2223,
+		TunnelUser:  "postern",
+		VPSHostname: "vps.example.net",
+		EnrolledAt:  "2026-09-06T12:00:00Z",
+	}
+	if err := SaveState(p.StateFile(), st); err != nil {
+		t.Fatal(err)
+	}
+	return p, cfg, st
+}
+
 func testToken(t *testing.T) string {
 	t.Helper()
 	plain, _, err := auth.Issue(time.Minute, "macbook", "")
@@ -319,5 +335,72 @@ func TestApplyResponseNameCaseInsensitive(t *testing.T) {
 	body["name"] = "MacBook"
 	if _, err := ApplyResponse(p, cfg, marshalJSON(t, body)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApplyResponseNewPortWithoutAgentInstall(t *testing.T) {
+	t.Parallel()
+	p, cfg := setupMachine(t)
+	mustWriteRequest(t, p, cfg)
+	fp := localFP(t, p)
+	if _, err := ApplyResponse(p, cfg, marshalJSON(t, validResp(fp))); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := WriteEnrollRequest(p, cfg, testToken(t), true); err != nil {
+		t.Fatal(err)
+	}
+	body := validResp(fp)
+	body["port"] = 2205
+	st, err := ApplyResponse(p, cfg, marshalJSON(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Port != 2205 {
+		t.Fatalf("port = %d", st.Port)
+	}
+	tunnel, err := os.ReadFile(p.SSHConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tunnel), "RemoteForward 127.0.0.1:2205 127.0.0.1:22") {
+		t.Fatalf("ssh_config not updated to new port:\n%s", tunnel)
+	}
+	if strings.Contains(string(tunnel), "127.0.0.1:2223") {
+		t.Fatalf("stale port 2223 still in ssh_config:\n%s", tunnel)
+	}
+}
+
+func TestSetNameRewritesConfigStateAndSSHConfigs(t *testing.T) {
+	t.Parallel()
+	p, cfg, st := setupEnrolled(t)
+	if err := WriteSSHConfigs(p, st, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetName(p, "nuc"); err != nil {
+		t.Fatal(err)
+	}
+	gotCfg, err := config.LoadClient(p.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCfg.Name != "nuc" {
+		t.Fatalf("config name = %q", gotCfg.Name)
+	}
+	gotSt, err := LoadState(p.StateFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSt.Name != "nuc" || gotSt.Port != 2223 {
+		t.Fatalf("state = %+v", gotSt)
+	}
+	tunnel, err := os.ReadFile(p.SSHConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tunnel), "RemoteForward 127.0.0.1:2223 127.0.0.1:22") {
+		t.Fatalf("ssh_config lost forward after set-name:\n%s", tunnel)
+	}
+	if err := SetName(p, "postern"); err == nil {
+		t.Fatal("reserved name should fail")
 	}
 }

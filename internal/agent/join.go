@@ -217,3 +217,53 @@ func LoadState(path string) (State, error) {
 	}
 	return st, nil
 }
+
+func SaveState(path string, st State) error {
+	body, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	return writeFileAtomic(path, body, 0o600)
+}
+
+func loadEnrolled(p Paths) (config.Client, State, error) {
+	cfg, err := config.LoadClient(p.ConfigFile())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return config.Client{}, State{}, fmt.Errorf("client config not found (run postern init): %s", p.ConfigFile())
+		}
+		return config.Client{}, State{}, err
+	}
+	st, err := LoadState(p.StateFile())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, State{}, fmt.Errorf("not enrolled (%s missing); run postern join --apply-response first", p.StateFile())
+		}
+		return cfg, State{}, err
+	}
+	if st.Port < 1 {
+		return cfg, st, fmt.Errorf("port missing")
+	}
+	return cfg, st, nil
+}
+
+func SetName(p Paths, name string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if err := names.Valid(name); err != nil {
+		return err
+	}
+	cfg, st, err := loadEnrolled(p)
+	if err != nil {
+		return err
+	}
+	cfg.Name = name
+	st.Name = name
+	if err := cfg.Save(p.ConfigFile()); err != nil {
+		return err
+	}
+	if err := SaveState(p.StateFile(), st); err != nil {
+		return err
+	}
+	return WriteSSHConfigs(p, st, cfg)
+}

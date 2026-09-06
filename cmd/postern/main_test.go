@@ -52,6 +52,34 @@ func TestJoinApplyResponseRejectsForce(t *testing.T) {
 	}
 }
 
+func TestAgentHelpListsSubcommands(t *testing.T) {
+	cmd := newRoot()
+	cmd.SetArgs([]string{"agent", "--help"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"install", "uninstall", "enable", "disable", "status", "run", "set-name"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("agent help missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestAgentSetNameRequiresArg(t *testing.T) {
+	cmd := newRoot()
+	cmd.SetArgs([]string{"agent", "set-name"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestInitMergesExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
