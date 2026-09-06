@@ -4,7 +4,11 @@
 #
 # Usage (as root):
 #   POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh [admin-user]
-# admin-user defaults to $SUDO_USER, then debian. Must not be root or postern.
+#   POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh --create debian
+#
+# admin-user is the login you SSH as (added to group postern). It must not be
+# root or postern. With no argument, the script uses $SUDO_USER, then debian,
+# ubuntu, or the first uid>=1000 login. uid 0 is already an API admin.
 #
 # sshd -t is a hard-fail: this script never reloads ssh if the config is invalid.
 # Do not set MaxStartups in the Postern drop-in (it is global and can lock out the admin).
@@ -30,18 +34,106 @@ SSHD_DROPIN=/etc/ssh/sshd_config.d/50-postern.conf
 UNIT_DEST=/etc/systemd/system/posternd.service
 CONF_DEST=/etc/postern/posternd.toml
 
+CREATE=0
 ADMIN=""
-if [ "${1-}" != "" ] && [ "$1" != "root" ]; then
-	ADMIN=$1
-elif [ "${SUDO_USER-}" != "" ] && [ "$SUDO_USER" != "root" ]; then
-	ADMIN=$SUDO_USER
+for arg in "$@"; do
+	case $arg in
+	--create)
+		CREATE=1
+		;;
+	-*)
+		die "unknown flag $arg (usage: $0 [--create] [admin-user])"
+		;;
+	root)
+		die "admin user must not be root (uid 0 is already an API admin; pass the login you SSH as)"
+		;;
+	postern)
+		die "admin user must not be postern (uid postern is never admin)"
+		;;
+	*)
+		if [ -n "$ADMIN" ]; then
+			die "too many arguments: $ADMIN $arg"
+		fi
+		ADMIN=$arg
+		;;
+	esac
+done
+
+list_logins() {
+	awk -F: '$3 >= 1000 && $3 < 65534 && $1 != "nobody" && $1 != "nfsnobody" && $7 !~ /nologin|false/ { print $1 }' /etc/passwd
+}
+
+login_exists() {
+	[ -n "$1" ] && getent passwd "$1" >/dev/null
+}
+
+create_admin() {
+	name=$1
+	echo "vps-bootstrap: creating login $name"
+	useradd --create-home --shell /bin/bash --comment "Postern admin" "$name" || \
+		die "useradd $name failed"
+	if getent group sudo >/dev/null; then
+		usermod -aG sudo "$name"
+	fi
+	if getent group wheel >/dev/null; then
+		usermod -aG wheel "$name"
+	fi
+	home=$(getent passwd "$name" | cut -d: -f6)
+	[ -n "$home" ] || die "no home for $name"
+	if [ -s /root/.ssh/authorized_keys ]; then
+		install -d -o "$name" -g "$name" -m 0700 "$home/.ssh"
+		install -o "$name" -g "$name" -m 0600 /root/.ssh/authorized_keys "$home/.ssh/authorized_keys"
+		echo "vps-bootstrap: copied /root/.ssh/authorized_keys to $home/.ssh/authorized_keys"
+	else
+		echo "vps-bootstrap: warning: no /root/.ssh/authorized_keys to copy; add an SSH pubkey before leaving root" >&2
+	fi
+}
+
+pick_existing_admin() {
+	if [ -n "${SUDO_USER-}" ] && [ "$SUDO_USER" != "root" ] && [ "$SUDO_USER" != "postern" ] && login_exists "$SUDO_USER"; then
+		echo "$SUDO_USER"
+		return
+	fi
+	for c in debian ubuntu admin; do
+		if login_exists "$c"; then
+			echo "$c"
+			return
+		fi
+	done
+	list_logins | head -n 1
+}
+
+if [ -n "$ADMIN" ]; then
+	if ! login_exists "$ADMIN"; then
+		if [ "$CREATE" -eq 1 ]; then
+			create_admin "$ADMIN"
+		else
+			echo "vps-bootstrap: admin user $ADMIN does not exist" >&2
+			echo "vps-bootstrap: existing logins:" >&2
+			logins=$(list_logins)
+			if [ -n "$logins" ]; then
+				echo "$logins" | sed 's/^/  /' >&2
+				first=$(echo "$logins" | head -n 1)
+				echo "vps-bootstrap: re-run with one of those, e.g. $0 $first" >&2
+			else
+				echo "  (none — this looks like a root-only image)" >&2
+			fi
+			echo "vps-bootstrap: or create $ADMIN: $0 --create $ADMIN" >&2
+			exit 1
+		fi
+	fi
 else
-	ADMIN=debian
+	ADMIN=$(pick_existing_admin || true)
+	if [ -z "$ADMIN" ]; then
+		if [ "$CREATE" -eq 1 ]; then
+			ADMIN=debian
+			create_admin "$ADMIN"
+		else
+			die "no admin login found (root-only image). Create one: $0 --create debian"
+		fi
+	fi
+	echo "vps-bootstrap: using admin login $ADMIN"
 fi
-if [ "$ADMIN" = "postern" ]; then
-	die "admin user must not be postern (uid postern is never admin)"
-fi
-getent passwd "$ADMIN" >/dev/null || die "admin user $ADMIN does not exist"
 
 [ -f "$SSHD_FIXTURE" ] || die "missing $SSHD_FIXTURE"
 [ -f "$UNIT_FIXTURE" ] || die "missing $UNIT_FIXTURE"
@@ -182,6 +274,7 @@ systemctl enable --now posternd
 echo
 echo "vps-bootstrap: installed /usr/bin/posternd and posternd-shell symlink"
 echo "vps-bootstrap: $ADMIN is in group postern — open a NEW SSH session so SO_PEERGROUPS sees it"
+echo "vps-bootstrap: from a laptop, postern config set server ${ADMIN}@${VPS_HOSTNAME}"
 echo "vps-bootstrap: Linux agents need a lingering user session or the tunnel dies on logout:"
 echo "               loginctl enable-linger <login-user>"
 echo "vps-bootstrap: split-enroll is the canary path (join --token, enroll-machine, join --apply-response)."

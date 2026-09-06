@@ -135,10 +135,19 @@ Do **not** install the `postern` client as the VPS tunnel.
 ```bash
 tar -xzf postern_*_linux_*.tar.gz
 # as root, from the extracted directory
-POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh debian
+POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh
+# or pass the login you SSH as:
+POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh ubuntu
+# root-only image (creates the login, copies /root/.ssh/authorized_keys):
+POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh --create debian
 ```
 
-`debian` is the admin SSH user (or `$SUDO_USER` / the first non-root argument).
+The admin user is the login you SSH as (added to group `postern`). It must not
+be `root` or `postern`. With no argument the script uses `$SUDO_USER`, then
+`debian` / `ubuntu` if they exist, then the first uid≥1000 login. `root` can
+already talk to the Unix socket (uid 0 is an API admin); you still want a
+normal SSH login for `postern config set server USER@HOST`.
+
 The script:
 
 - `groupadd --system postern` and `useradd --system` with shell `/usr/bin/posternd-shell`
