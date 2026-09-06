@@ -1,0 +1,1 @@
+restrict,port-forwarding,permitopen="127.0.0.1:22" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBktPaVv6ld6eJT8/J9fyUUFiPzEBlI+8HfbMeGl1j/6

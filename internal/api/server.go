@@ -24,6 +24,7 @@ type Server struct {
 	PosternGID uint32
 	Probe      alloc.ListenProbe
 	LookupPeer func(net.Conn) (auth.Peer, error)
+	RenderKeys func(hosts []*store.Host) error
 }
 
 type errorBody struct {
@@ -53,7 +54,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/tokens", s.requireAdmin(s.handleIssueToken))
 	mux.HandleFunc("GET /v1/tokens", s.requireAdmin(s.handleListTokens))
 	mux.HandleFunc("DELETE /v1/tokens/{id}", s.requireAdmin(s.handleRevokeToken))
+	mux.HandleFunc("POST /v1/enroll", s.requireAdmin(s.handleEnroll))
 	mux.HandleFunc("GET /v1/hosts", s.requireAdmin(s.handleListHosts))
+	mux.HandleFunc("POST /v1/authorized-keys/render", s.requireAdmin(s.handleRenderKeys))
 	mux.HandleFunc("POST /v1/agent/heartbeat", s.requireAgent(s.notImplemented))
 	mux.HandleFunc("GET /v1/agent/self", s.requireAgent(s.notImplemented))
 	mux.HandleFunc("/", s.notFound)

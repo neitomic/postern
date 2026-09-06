@@ -229,3 +229,65 @@ func TestInsertToken(t *testing.T) {
 		t.Fatal("expected unique token id")
 	}
 }
+
+func TestUpdateAndDeleteHost(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "macbook",
+		LoginUser:      "neo",
+		Port:           2223,
+		KeyFingerprint: "SHA256:aaaa",
+		Pubkey:         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIaaaa",
+		TagsJSON:       `["home"]`,
+		CreatedAt:      1,
+		UpdatedAt:      1,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateHostEnroll("macbook", "debian", `["lab"]`, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIbbbb", 9); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LoginUser != "debian" || got.TagsJSON != `["lab"]` || got.UpdatedAt != 9 || got.Port != 2223 {
+		t.Fatalf("updated = %+v", got)
+	}
+	if err := st.DeleteHostByName("macbook"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.HostByName("macbook"); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("after delete: %v", err)
+	}
+	if err := st.DeleteHostByName("macbook"); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+}
+
+func TestUniqueColumn(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "a",
+		LoginUser:      "neo",
+		Port:           2200,
+		KeyFingerprint: "SHA256:a",
+		Pubkey:         "ssh-ed25519 a",
+		CreatedAt:      1,
+		UpdatedAt:      1,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	dup := h
+	dup.Name = "b"
+	dup.KeyFingerprint = "SHA256:b"
+	err := st.InsertHost(&dup)
+	col, ok := UniqueColumn(err)
+	if !ok || col != "hosts.port" {
+		t.Fatalf("UniqueColumn(%v) = %q, %v", err, col, ok)
+	}
+}

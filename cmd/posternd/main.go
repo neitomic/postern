@@ -41,5 +41,7 @@ func newRoot() *cobra.Command {
 	})
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newTokenCmd())
+	cmd.AddCommand(newEnrollCmd())
+	cmd.AddCommand(newAuthorizedKeysCmd())
 	return cmd
 }

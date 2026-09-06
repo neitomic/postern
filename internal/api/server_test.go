@@ -22,19 +22,29 @@ const (
 	testPosternGID = 200
 )
 
+type emptyProbe struct{}
+
+func (emptyProbe) Listening(min, max int) (map[int]struct{}, error) {
+	return map[int]struct{}{}, nil
+}
+
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "postern.db")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "postern.db")
 	st, err := store.Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	cfg := config.DefaultPosternd()
+	cfg.AuthorizedKeysPath = filepath.Join(dir, "authorized_keys")
 	return &Server{
 		Store:      st,
-		Config:     config.DefaultPosternd(),
+		Config:     cfg,
 		PosternUID: testPosternUID,
 		PosternGID: testPosternGID,
+		Probe:      emptyProbe{},
 	}
 }
 

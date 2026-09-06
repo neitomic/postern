@@ -15,7 +15,7 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	dsn := "file:" + path + "?_fk=1&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
+	dsn := "file:" + path + "?_fk=1&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -44,4 +44,9 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+// BeginImmediate starts a write transaction. The DSN sets _txlock=immediate.
+func (s *Store) BeginImmediate() (*sql.Tx, error) {
+	return s.db.Begin()
 }
