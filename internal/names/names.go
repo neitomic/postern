@@ -12,6 +12,7 @@ var (
 	ErrInvalid   = errors.New("invalid name")
 	ErrReserved  = errors.New("reserved name")
 	ErrLoginUser = errors.New("invalid login_user")
+	ErrHostname  = errors.New("invalid hostname")
 	ErrTag       = errors.New("invalid tag")
 	ErrTagCount  = errors.New("too many tags")
 )
@@ -24,7 +25,9 @@ var reserved = map[string]struct{}{
 var (
 	nameRE      = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	loginUserRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	tagRE       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+	// DNS labels / IPv4; no whitespace or ssh_config metacharacters (HostName interpolation).
+	hostnameRE = regexp.MustCompile(`(?i)^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+	tagRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 )
 
 func Valid(name string) error {
@@ -40,6 +43,13 @@ func Valid(name string) error {
 func ValidLoginUser(user string) error {
 	if !loginUserRE.MatchString(user) {
 		return fmt.Errorf("%w: %q", ErrLoginUser, user)
+	}
+	return nil
+}
+
+func ValidHostname(host string) error {
+	if host == "" || len(host) > 253 || !hostnameRE.MatchString(host) {
+		return fmt.Errorf("%w: %q", ErrHostname, host)
 	}
 	return nil
 }

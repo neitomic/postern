@@ -236,6 +236,9 @@ func TestApplyResponseFailedBindLeavesFiles(t *testing.T) {
 		{"port_2300", map[string]any{"ok": true, "name": "macbook", "port": 2300, "tunnel_user": "postern", "vps_hostname": "vps.example.net", "key_fingerprint": fp}, "port 2300 out of range"},
 		{"empty_tunnel_user", map[string]any{"ok": true, "name": "macbook", "port": 2223, "tunnel_user": "", "vps_hostname": "vps.example.net", "key_fingerprint": fp}, "tunnel_user is empty"},
 		{"empty_vps_hostname", map[string]any{"ok": true, "name": "macbook", "port": 2223, "tunnel_user": "postern", "vps_hostname": "", "key_fingerprint": fp}, "vps_hostname is empty"},
+		{"injected_vps_hostname", map[string]any{"ok": true, "name": "macbook", "port": 2223, "tunnel_user": "postern", "vps_hostname": "evil.example\n    StrictHostKeyChecking no\n    UserKnownHostsFile /dev/null", "key_fingerprint": fp}, "invalid vps_hostname"},
+		{"injected_tunnel_user", map[string]any{"ok": true, "name": "macbook", "port": 2223, "tunnel_user": "postern\n    StrictHostKeyChecking no", "vps_hostname": "vps.example.net", "key_fingerprint": fp}, "invalid tunnel_user"},
+		{"quoted_vps_hostname", map[string]any{"ok": true, "name": "macbook", "port": 2223, "tunnel_user": "postern", "vps_hostname": `evil"example.net`, "key_fingerprint": fp}, "invalid vps_hostname"},
 		{"not_json", "not-json", "invalid enroll response JSON"},
 	}
 	for _, tc := range cases {
@@ -274,6 +277,37 @@ func TestApplyResponseFailedBindLeavesFiles(t *testing.T) {
 				t.Fatal("ssh_config.rpc must stay absent")
 			}
 		})
+	}
+}
+
+func TestApplyResponseWriteSSHConfigsFailRemovesState(t *testing.T) {
+	t.Parallel()
+	p, cfg := setupMachine(t)
+	mustWriteRequest(t, p, cfg)
+	reqBefore, err := os.ReadFile(p.EnrollRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(p.SSHConfig(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ApplyResponse(p, cfg, marshalJSON(t, validResp(localFP(t, p))))
+	if err == nil {
+		t.Fatal("expected WriteSSHConfigs error")
+	}
+	var be *BindError
+	if errors.As(err, &be) {
+		t.Fatalf("WriteSSHConfigs failure should not be BindError: %v", err)
+	}
+	if _, err := os.Stat(p.StateFile()); !os.IsNotExist(err) {
+		t.Fatal("state.json must be removed if WriteSSHConfigs fails")
+	}
+	got, err := os.ReadFile(p.EnrollRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(reqBefore) {
+		t.Fatal("enroll-request.json was modified")
 	}
 }
 

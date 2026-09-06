@@ -39,8 +39,8 @@ func newJoinCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch {
 			case applyResponse != "":
-				if token != "" || submit {
-					return fmt.Errorf("--apply-response cannot be combined with --token or --submit")
+				if token != "" || submit || force {
+					return fmt.Errorf("--apply-response cannot be combined with --token, --submit, or --force")
 				}
 				return runApplyResponse(cmd, applyResponse)
 			case submit:

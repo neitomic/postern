@@ -123,10 +123,16 @@ func ApplyResponse(p Paths, cfg config.Client, raw []byte) (State, error) {
 		return State{}, err
 	}
 	body = append(body, '\n')
+	if cfg.Server != "" {
+		if _, _, _, err := config.ParseServer(cfg.Server); err != nil {
+			return State{}, err
+		}
+	}
 	if err := writeFileAtomic(p.StateFile(), body, 0o600); err != nil {
 		return State{}, err
 	}
 	if err := WriteSSHConfigs(p, st, cfg); err != nil {
+		_ = os.Remove(p.StateFile())
 		return State{}, err
 	}
 	if err := os.Remove(p.EnrollRequest()); err != nil && !os.IsNotExist(err) {
@@ -160,11 +166,19 @@ func bindResponse(p Paths, cfg config.Client, resp enrollResponse) error {
 	if resp.Port < alloc.DefaultPortMin || resp.Port > alloc.DefaultPortMax {
 		return bindErrorf("port %d out of range [%d,%d]", resp.Port, alloc.DefaultPortMin, alloc.DefaultPortMax)
 	}
-	if strings.TrimSpace(resp.TunnelUser) == "" {
+	tunnelUser := strings.TrimSpace(resp.TunnelUser)
+	if tunnelUser == "" {
 		return bindErrorf("tunnel_user is empty")
 	}
-	if strings.TrimSpace(resp.VPSHostname) == "" {
+	if err := names.ValidLoginUser(tunnelUser); err != nil {
+		return bindErrorf("invalid tunnel_user %q", resp.TunnelUser)
+	}
+	vpsHost := strings.TrimSpace(resp.VPSHostname)
+	if vpsHost == "" {
 		return bindErrorf("vps_hostname is empty")
+	}
+	if err := names.ValidHostname(vpsHost); err != nil {
+		return bindErrorf("invalid vps_hostname %q", resp.VPSHostname)
 	}
 	return nil
 }

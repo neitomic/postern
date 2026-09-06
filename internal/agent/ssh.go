@@ -18,6 +18,7 @@ func ControlSSHArgs(cfg config.Client, knownHosts string, remote ...string) ([]s
 	args := []string{
 		"-T",
 		"-o", "BatchMode=yes",
+		"-o", "ForwardAgent=no",
 		"-o", "UserKnownHostsFile=" + knownHosts,
 		"-o", "GlobalKnownHostsFile=/dev/null",
 	}

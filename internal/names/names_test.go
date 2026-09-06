@@ -97,6 +97,42 @@ func TestValidLoginUser(t *testing.T) {
 	}
 }
 
+func TestValidHostname(t *testing.T) {
+	t.Parallel()
+	valid := []string{
+		"vps",
+		"vps.example.net",
+		"VPS.Example.NET",
+		"10.0.0.1",
+		"a.b",
+		"x" + strings.Repeat("y", 61) + "z.example.net",
+	}
+	for _, host := range valid {
+		if err := ValidHostname(host); err != nil {
+			t.Errorf("ValidHostname(%q) = %v, want nil", host, err)
+		}
+	}
+	invalid := []string{
+		"",
+		"-bad.example",
+		"bad-.example",
+		"has space.example",
+		"evil.example\n    StrictHostKeyChecking no",
+		"evil.example\r\nUserKnownHostsFile /dev/null",
+		`evil"example.net`,
+		"evil'example.net",
+		"evil.example.net;rm",
+		"a/b",
+		strings.Repeat("a", 254),
+	}
+	for _, host := range invalid {
+		err := ValidHostname(host)
+		if !errors.Is(err, ErrHostname) {
+			t.Errorf("ValidHostname(%q) = %v, want %v", host, err, ErrHostname)
+		}
+	}
+}
+
 func TestValidTags(t *testing.T) {
 	t.Parallel()
 	if err := ValidTags(nil); err != nil {

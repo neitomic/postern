@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/neitomic/postern/internal/config"
+	"github.com/neitomic/postern/internal/names"
 )
 
 func WriteSSHConfigs(p Paths, st State, cfg config.Client) error {
@@ -34,6 +35,12 @@ func formatSSHConfig(p Paths, st State, cfg config.Client, withForward bool) (st
 	local := cfg.LocalSSHPort
 	if local == 0 {
 		local = 22
+	}
+	if err := names.ValidLoginUser(st.TunnelUser); err != nil {
+		return "", err
+	}
+	if err := names.ValidHostname(st.VPSHostname); err != nil {
+		return "", err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Host postern-tunnel\n")

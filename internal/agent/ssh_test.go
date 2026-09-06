@@ -30,6 +30,9 @@ func TestControlSSHArgsNoIdentitiesOnlyWithoutIdentityFile(t *testing.T) {
 	if !containsKV(args, "-o", "BatchMode=yes") {
 		t.Fatal("missing BatchMode")
 	}
+	if !containsKV(args, "-o", "ForwardAgent=no") {
+		t.Fatal("missing ForwardAgent=no")
+	}
 	if !containsKV(args, "-o", "UserKnownHostsFile=/tmp/postern-known_hosts") {
 		t.Fatal("missing UserKnownHostsFile")
 	}

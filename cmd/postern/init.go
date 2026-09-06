@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/neitomic/postern/internal/agent"
@@ -23,7 +24,7 @@ func newInitCmd() *cobra.Command {
 		Short: "Create XDG dirs, tunnel key, and config.toml",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(server, name, loginUser, localSSHPort, acceptHost)
+			return runInit(cmd, server, name, loginUser, localSSHPort, acceptHost)
 		},
 		SilenceUsage: true,
 	}
@@ -35,7 +36,7 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
-func runInit(server, name, loginUser string, localSSHPort int, acceptHost bool) error {
+func runInit(cmd *cobra.Command, server, name, loginUser string, localSSHPort int, acceptHost bool) error {
 	p, err := agent.DefaultPaths()
 	if err != nil {
 		return err
@@ -45,6 +46,14 @@ func runInit(server, name, loginUser string, localSSHPort int, acceptHost bool) 
 	}
 
 	cfg := config.DefaultClient()
+	loaded := false
+	if existing, err := config.LoadClient(p.ConfigFile()); err == nil {
+		cfg = existing
+		loaded = true
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
 	server = strings.TrimSpace(server)
 	if server != "" {
 		if _, _, _, err := config.ParseServer(server); err != nil {
@@ -60,19 +69,22 @@ func runInit(server, name, loginUser string, localSSHPort int, acceptHost bool) 
 		cfg.Name = name
 	}
 	loginUser = strings.ToLower(strings.TrimSpace(loginUser))
-	if loginUser == "" {
-		loginUser = defaultLoginUser()
-	}
 	if loginUser != "" {
 		if err := names.ValidLoginUser(loginUser); err != nil {
 			return err
 		}
 		cfg.LoginUser = loginUser
+	} else if !loaded {
+		if u := defaultLoginUser(); u != "" {
+			cfg.LoginUser = u
+		}
 	}
-	if localSSHPort < 1 || localSSHPort > 65535 {
-		return fmt.Errorf("local-ssh-port %d out of range", localSSHPort)
+	if cmd.Flags().Changed("local-ssh-port") || !loaded {
+		if localSSHPort < 1 || localSSHPort > 65535 {
+			return fmt.Errorf("local-ssh-port %d out of range", localSSHPort)
+		}
+		cfg.LocalSSHPort = localSSHPort
 	}
-	cfg.LocalSSHPort = localSSHPort
 
 	if err := agent.EnsureKey(p.IdentityFile(), agent.KeyComment(cfg.Name)); err != nil {
 		return err
