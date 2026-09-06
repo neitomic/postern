@@ -10,6 +10,7 @@ Restart=on-failure
 RestartSec=2
 UMask=0007
 StateDirectory=postern
+StateDirectoryMode=0750
 RuntimeDirectory=postern
 RuntimeDirectoryMode=0750
 NoNewPrivileges=yes

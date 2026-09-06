@@ -20,7 +20,7 @@ Full spec: [DESIGN.md](DESIGN.md).
 
 ## Build
 
-Go 1.23+, `CGO_ENABLED=0` (pure-Go SQLite).
+Go 1.25+, `CGO_ENABLED=0` (pure-Go SQLite).
 
 ```bash
 make test

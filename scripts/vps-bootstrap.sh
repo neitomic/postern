@@ -136,21 +136,42 @@ else
 fi
 
 install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
+# Keep a pre-install copy so a failed sshd -t / leak check cannot leave a
+# drop-in that the next sshd start (reboot, unattended-upgrades) would load.
+SSHD_PREV=""
+if [ -f "$SSHD_DROPIN" ]; then
+	SSHD_PREV=$(mktemp)
+	cp -p "$SSHD_DROPIN" "$SSHD_PREV"
+fi
 install -o root -g root -m 0644 "$SSHD_FIXTURE" "$SSHD_DROPIN"
 install -o root -g root -m 0644 "$UNIT_FIXTURE" "$UNIT_DEST"
 
-# Hard-fail: never reload ssh with a broken Match drop-in (can lock out $ADMIN).
-if ! "$SSHD" -t; then
-	echo "vps-bootstrap: sshd -t failed; not reloading ssh" >&2
-	exit 1
-fi
-DUMP=$("$SSHD" -T -C "user=${ADMIN},host=localhost,addr=127.0.0.1") || {
-	echo "vps-bootstrap: sshd -T for user=$ADMIN failed; not reloading ssh" >&2
+rollback_sshd_dropin() {
+	if [ -n "${SSHD_PREV-}" ] && [ -f "$SSHD_PREV" ]; then
+		cp -p "$SSHD_PREV" "$SSHD_DROPIN"
+		rm -f "$SSHD_PREV"
+	else
+		rm -f "$SSHD_DROPIN"
+	fi
+}
+
+abort_sshd() {
+	echo "vps-bootstrap: $1; not reloading ssh" >&2
+	rollback_sshd_dropin
 	exit 1
 }
+
+# Hard-fail: never reload ssh with a broken Match drop-in (can lock out $ADMIN).
+if ! "$SSHD" -t; then
+	abort_sshd "sshd -t failed"
+fi
+DUMP=$("$SSHD" -T -C "user=${ADMIN},host=localhost,addr=127.0.0.1") || \
+	abort_sshd "sshd -T for user=$ADMIN failed"
 if echo "$DUMP" | grep -qi '^forcecommand /usr/bin/posternd-shell'; then
-	echo "vps-bootstrap: Match leaked onto $ADMIN (ForceCommand posternd-shell); not reloading ssh" >&2
-	exit 1
+	abort_sshd "Match leaked onto $ADMIN (ForceCommand posternd-shell)"
+fi
+if [ -n "$SSHD_PREV" ]; then
+	rm -f "$SSHD_PREV"
 fi
 
 systemctl reload ssh 2>/dev/null || systemctl reload sshd
