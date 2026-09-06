@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -307,6 +308,20 @@ func TestEnrollParallelDifferentNames(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Fatalf("hosts = %d", len(list))
+	}
+	keys, err := os.ReadFile(s.Config.AuthorizedKeysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(keys)
+	if !strings.Contains(body, "postern:macbook") || !strings.Contains(body, "postern:nuc") {
+		t.Fatalf("keys missing a host:\n%s", body)
+	}
+	for port := range ports {
+		want := fmt.Sprintf(`permitlisten="127.0.0.1:%d"`, port)
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in keys:\n%s", want, body)
+		}
 	}
 }
 

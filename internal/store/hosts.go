@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-var ErrHostNotFound = errors.New("no_such_host")
+var (
+	ErrHostNotFound = errors.New("no_such_host")
+	ErrHostChanged  = errors.New("host row changed")
+)
 
 type querier interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -140,6 +143,48 @@ func DeleteHostByNameTx(q querier, name string) error {
 	}
 	if n == 0 {
 		return ErrHostNotFound
+	}
+	return nil
+}
+
+// DeleteHostWritten deletes only the row this enroll inserted (id+fp+timestamps).
+func (s *Store) DeleteHostWritten(id int64, fingerprint string, createdAt, updatedAt int64) error {
+	res, err := s.db.Exec(
+		`DELETE FROM hosts WHERE id = ? AND key_fingerprint = ? AND created_at = ? AND updated_at = ?`,
+		id, fingerprint, createdAt, updatedAt,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrHostChanged
+	}
+	return nil
+}
+
+// RestoreHostEnroll restores enroll fields only if id/fp/updated_at still match this enroll.
+func (s *Store) RestoreHostEnroll(id int64, fingerprint string, expectedUpdatedAt int64, loginUser, tagsJSON, pubkey string, restoreUpdatedAt int64) error {
+	if tagsJSON == "" {
+		tagsJSON = "[]"
+	}
+	res, err := s.db.Exec(
+		`UPDATE hosts SET login_user = ?, tags_json = ?, pubkey = ?, updated_at = ?
+		 WHERE id = ? AND key_fingerprint = ? AND updated_at = ?`,
+		loginUser, tagsJSON, pubkey, restoreUpdatedAt, id, fingerprint, expectedUpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrHostChanged
 	}
 	return nil
 }

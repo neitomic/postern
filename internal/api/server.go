@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/neitomic/postern/internal/alloc"
@@ -25,6 +26,7 @@ type Server struct {
 	Probe      alloc.ListenProbe
 	LookupPeer func(net.Conn) (auth.Peer, error)
 	RenderKeys func(hosts []*store.Host) error
+	keysMu     sync.Mutex // list+write+compensate; concurrent enrolls otherwise clobber authorized_keys
 }
 
 type errorBody struct {

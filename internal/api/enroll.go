@@ -135,10 +135,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		port     int
 		inserted bool
 		snapshot *store.Host
+		written  *store.Host
 	)
 	switch {
 	case existing == nil:
-		port, err = s.insertNewHost(tx, probe, &store.Host{
+		h := &store.Host{
 			Name:           name,
 			LoginUser:      req.LoginUser,
 			KeyFingerprint: fp,
@@ -146,12 +147,14 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			TagsJSON:       string(tagsJSON),
 			CreatedAt:      now,
 			UpdatedAt:      now,
-		})
+		}
+		port, err = s.insertNewHost(tx, probe, h)
 		if err != nil {
 			s.writeAllocError(w, name, err)
 			return
 		}
 		inserted = true
+		written = h
 	case existing.KeyFingerprint == fp:
 		snapshot = cloneHost(existing)
 		if err := store.UpdateHostEnrollTx(tx, name, req.LoginUser, string(tagsJSON), stored, now); err != nil {
@@ -159,6 +162,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		port = existing.Port
+		written = cloneHost(existing)
+		written.LoginUser = req.LoginUser
+		written.TagsJSON = string(tagsJSON)
+		written.Pubkey = stored
+		written.UpdatedAt = now
 	default:
 		slog.Warn("enroll_denied", "reason", "name_collision", "name", name)
 		writeError(w, http.StatusConflict, "name_collision", "host "+name+" exists with a different key")
@@ -170,13 +178,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.renderAuthorizedKeys(); err != nil {
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	if _, err := s.renderAuthorizedKeysLocked(); err != nil {
 		slog.Error("keys_render_required", "name", name)
-		if inserted {
-			_ = s.Store.DeleteHostByName(name)
-		} else if snapshot != nil {
-			_ = s.Store.UpdateHostEnroll(name, snapshot.LoginUser, snapshot.TagsJSON, snapshot.Pubkey, snapshot.UpdatedAt)
-		}
+		s.compensateRenderFail(inserted, written, snapshot)
 		writeError(w, http.StatusInternalServerError, "keys_render_required", "failed to render authorized_keys")
 		return
 	}
@@ -248,6 +254,34 @@ func tokenConsumeError(err error) (code string, status int, msg string) {
 		return "bound_name", http.StatusBadRequest, "token bound to a different name"
 	default:
 		return "internal", http.StatusInternalServerError, "failed to consume token"
+	}
+}
+
+func (s *Server) compensateRenderFail(inserted bool, written, snapshot *store.Host) {
+	if written == nil {
+		return
+	}
+	if inserted {
+		err := s.Store.DeleteHostWritten(written.ID, written.KeyFingerprint, written.CreatedAt, written.UpdatedAt)
+		if err != nil {
+			level := slog.Error
+			if errors.Is(err, store.ErrHostChanged) {
+				level = slog.Warn
+			}
+			level("enroll_compensate", "op", "delete", "name", written.Name, "err", err)
+		}
+		return
+	}
+	if snapshot == nil {
+		return
+	}
+	err := s.Store.RestoreHostEnroll(written.ID, written.KeyFingerprint, written.UpdatedAt, snapshot.LoginUser, snapshot.TagsJSON, snapshot.Pubkey, snapshot.UpdatedAt)
+	if err != nil {
+		level := slog.Error
+		if errors.Is(err, store.ErrHostChanged) {
+			level = slog.Warn
+		}
+		level("enroll_compensate", "op", "restore", "name", written.Name, "err", err)
 	}
 }
 

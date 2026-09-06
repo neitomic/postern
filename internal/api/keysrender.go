@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -23,6 +24,12 @@ func (s *Server) handleRenderKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderAuthorizedKeys() (int, error) {
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	return s.renderAuthorizedKeysLocked()
+}
+
+func (s *Server) renderAuthorizedKeysLocked() (int, error) {
 	hosts, err := s.Store.ListHosts()
 	if err != nil {
 		return 0, err
@@ -74,12 +81,12 @@ func FormatAuthorizedKeys(hosts []*store.Host) string {
 
 func WriteAuthorizedKeys(path string, hosts []*store.Host) error {
 	body := FormatAuthorizedKeys(hosts)
-	tmp := path + ".tmp"
-	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, keysFileMode)
+	// Unique tmp so concurrent writers cannot unlink each other's inode.
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
 	ok := false
 	defer func() {
 		if !ok {

@@ -85,8 +85,8 @@ func TestWriteAuthorizedKeysAtomicMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertGolden(t, string(got), "one-host.golden")
-	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
-		t.Fatalf("tmp leftover: %v", err)
+	if leftovers, _ := filepath.Glob(path + "*.tmp"); len(leftovers) != 0 {
+		t.Fatalf("tmp leftover: %v", leftovers)
 	}
 }
 

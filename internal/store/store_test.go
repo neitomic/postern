@@ -267,6 +267,76 @@ func TestUpdateAndDeleteHost(t *testing.T) {
 	}
 }
 
+func TestDeleteHostWrittenRequiresTimestamps(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "macbook",
+		LoginUser:      "neo",
+		Port:           2223,
+		KeyFingerprint: "SHA256:aaaa",
+		Pubkey:         "ssh-ed25519 a",
+		CreatedAt:      1,
+		UpdatedAt:      2,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteHostWritten(h.ID, h.KeyFingerprint, 1, 99); !errors.Is(err, ErrHostChanged) {
+		t.Fatalf("stale updated_at: %v", err)
+	}
+	if _, err := st.HostByName("macbook"); err != nil {
+		t.Fatalf("row deleted despite mismatch: %v", err)
+	}
+	if err := st.DeleteHostWritten(h.ID, h.KeyFingerprint, 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.HostByName("macbook"); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("after matching delete: %v", err)
+	}
+}
+
+func TestRestoreHostEnrollRequiresUpdatedAt(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "macbook",
+		LoginUser:      "neo",
+		Port:           2223,
+		KeyFingerprint: "SHA256:aaaa",
+		Pubkey:         "ssh-ed25519 a",
+		TagsJSON:       `["home"]`,
+		CreatedAt:      1,
+		UpdatedAt:      1,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateHostEnroll("macbook", "debian", `["lab"]`, "ssh-ed25519 b", 9); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RestoreHostEnroll(h.ID, h.KeyFingerprint, 1, "neo", `["home"]`, "ssh-ed25519 a", 1); !errors.Is(err, ErrHostChanged) {
+		t.Fatalf("stale expectedUpdatedAt: %v", err)
+	}
+	got, err := st.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LoginUser != "debian" || got.UpdatedAt != 9 {
+		t.Fatalf("row overwritten despite mismatch: %+v", got)
+	}
+	if err := st.RestoreHostEnroll(h.ID, h.KeyFingerprint, 9, "neo", `["home"]`, "ssh-ed25519 a", 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LoginUser != "neo" || got.TagsJSON != `["home"]` || got.UpdatedAt != 1 {
+		t.Fatalf("restore = %+v", got)
+	}
+}
+
 func TestUniqueColumn(t *testing.T) {
 	t.Parallel()
 	st, _ := openTemp(t)

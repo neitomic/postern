@@ -125,6 +125,19 @@ func TestParseEnrollPubkeyMaliciousDir(t *testing.T) {
 	}
 }
 
+func TestParseEnrollPubkeyRejectsSameLineSecondKey(t *testing.T) {
+	t.Parallel()
+	const pub2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBEfSo4bZcwBm8mvHGtnVnnsHO6Dzy99Wxjxm/+ztkFu"
+	_, err := ParseEnrollPubkey([]byte(goldenPub + " " + pub2))
+	if !errors.Is(err, ErrMultipleKeys) {
+		t.Fatalf("two keys on one line: err = %v, want %v", err, ErrMultipleKeys)
+	}
+	_, err = ParseEnrollPubkey([]byte(goldenPub + " ssh-ed25519"))
+	if !errors.Is(err, ErrMultipleKeys) {
+		t.Fatalf("key type in comment: err = %v, want %v", err, ErrMultipleKeys)
+	}
+}
+
 func TestParseEnrollPubkeyGeneratedEd25519(t *testing.T) {
 	t.Parallel()
 	pub, _, err := ed25519.GenerateKey(nil)
