@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -149,25 +150,38 @@ func newHostsRmCmd() *cobra.Command {
 				return err
 			}
 			fmt.Printf("removed %s (port %d)\n", got.Name, got.Port)
-			if !got.Listen {
-				return nil
-			}
-			runbook := listenRunbook(got.Port, got.PID)
-			fmt.Fprintf(os.Stderr, "warning: port %d still LISTEN\n%s\n", got.Port, runbook)
-			if !killListen {
-				return nil
-			}
-			if os.Geteuid() != 0 {
-				return exitCodeError{error: fmt.Errorf("port %d still LISTEN; --kill-listen requires root", got.Port), code: 2}
-			}
-			if err := alloc.KillListenPort(got.Port); err != nil {
-				return exitCodeError{error: fmt.Errorf("%w\n%s", err, runbook), code: 2}
-			}
-			return nil
+			return applyRmListen(got, killListen, os.Geteuid(), alloc.KillListenPort, os.Stderr)
 		},
 	}
-	cmd.Flags().BoolVar(&killListen, "kill-listen", false, "after render, kill the sshd child holding the reverse-forward (requires root)")
+	cmd.Flags().BoolVar(&killListen, "kill-listen", false, "after render, SIGTERM the sshd reverse-forward child")
 	return cmd
+}
+
+func applyRmListen(got rmResponse, killListen bool, euid int, killPort func(int) error, stderr io.Writer) error {
+	if !got.Listen {
+		return nil
+	}
+	runbook := listenRunbook(got.Port, got.PID)
+	fmt.Fprintf(stderr, "warning: port %d still LISTEN\n%s\n", got.Port, runbook)
+	if !killListen {
+		return nil
+	}
+	if got.Killed {
+		return nil
+	}
+	if euid != 0 {
+		return exitCodeError{error: fmt.Errorf("port %d still LISTEN; --kill-listen requires root", got.Port), code: 2}
+	}
+	if killPort == nil {
+		return exitCodeError{error: fmt.Errorf("port %d still LISTEN\n%s", got.Port, runbook), code: 2}
+	}
+	if err := killPort(got.Port); err != nil {
+		if errors.Is(err, alloc.ErrNoListenPID) {
+			return nil
+		}
+		return exitCodeError{error: fmt.Errorf("%w\n%s", err, runbook), code: 2}
+	}
+	return nil
 }
 
 func newHostsDisableCmd() *cobra.Command {

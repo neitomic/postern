@@ -29,7 +29,10 @@ type Server struct {
 	Now        func() time.Time
 	PortPIDs   func(min, max int) map[int]int
 	KillListen func(port int) error
-	keysMu     sync.Mutex // list+write+compensate; concurrent enrolls otherwise clobber authorized_keys
+	// ListenGoneTries/Sleep override the post-SIGTERM LISTEN poll. Zero tries = default.
+	ListenGoneTries int
+	ListenGoneSleep time.Duration
+	keysMu          sync.Mutex // list+write+compensate; concurrent enrolls otherwise clobber authorized_keys
 }
 
 type errorBody struct {

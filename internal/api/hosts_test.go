@@ -227,6 +227,67 @@ func TestRmKillListen(t *testing.T) {
 	}
 }
 
+func TestRmKillListenPollsUntilGone(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	s.ListenGoneTries = 5
+	s.ListenGoneSleep = 0
+	probe := &seqProbe{liveUntil: 2, port: 2223}
+	s.Probe = probe
+	s.KillListen = func(port int) error { return nil }
+	insertHost(t, s, "macbook", 2223, testFP1, testPub1)
+
+	rr := do(t, s, adminPeer(), http.MethodDelete, "/v1/hosts/macbook?kill_listen=1", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	var got rmResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Killed || got.Listen {
+		t.Fatalf("want killed and listen gone after poll, got %+v calls=%d", got, probe.n)
+	}
+	if probe.n < 3 {
+		t.Fatalf("probe calls = %d, want at least pre-kill + 2 polls", probe.n)
+	}
+}
+
+type seqProbe struct {
+	n         int
+	liveUntil int
+	port      int
+}
+
+func (p *seqProbe) Listening(min, max int) (map[int]struct{}, error) {
+	p.n++
+	if p.n > p.liveUntil {
+		return map[int]struct{}{}, nil
+	}
+	return map[int]struct{}{p.port: {}}, nil
+}
+
+func TestRmKillListenKilledWhileStillListen(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	s.ListenGoneTries = 1
+	s.Probe = mapProbe{2223: {}}
+	s.KillListen = func(port int) error { return nil }
+	insertHost(t, s, "macbook", 2223, testFP1, testPub1)
+
+	rr := do(t, s, adminPeer(), http.MethodDelete, "/v1/hosts/macbook?kill_listen=1", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	var got rmResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Killed || !got.Listen {
+		t.Fatalf("want killed+listen, got %+v", got)
+	}
+}
+
 func TestDisableOmittedFromKeys(t *testing.T) {
 	t.Parallel()
 	s := testServer(t)
@@ -482,6 +543,92 @@ func TestHostsAgentForbidden(t *testing.T) {
 	rr = do(t, s, agentPeer(), http.MethodPost, "/v1/gc", map[string]any{})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("gc status %d", rr.Code)
+	}
+}
+
+func TestRmRenderFailRestoresRow(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	before := insertHost(t, s, "macbook", 2223, testFP1, testPub1)
+	if err := WriteAuthorizedKeys(s.Config.AuthorizedKeysPath, []*store.Host{before}); err != nil {
+		t.Fatal(err)
+	}
+	keysBefore, err := os.ReadFile(s.Config.AuthorizedKeysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RenderKeys = func([]*store.Host) error { return errors.New("boom") }
+
+	rr := do(t, s, adminPeer(), http.MethodDelete, "/v1/hosts/macbook", nil)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	assertError(t, rr, "keys_render_required")
+	assertHostUnchanged(t, s, before)
+	keysAfter, err := os.ReadFile(s.Config.AuthorizedKeysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(keysAfter) != string(keysBefore) {
+		t.Fatal("keys changed on failed rm")
+	}
+}
+
+func TestDisableRenderFailRestoresRow(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	before := insertHost(t, s, "macbook", 2223, testFP1, testPub1)
+	s.RenderKeys = func([]*store.Host) error { return errors.New("boom") }
+	rr := do(t, s, adminPeer(), http.MethodPost, "/v1/hosts/macbook/disable", map[string]any{})
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	assertError(t, rr, "keys_render_required")
+	assertHostUnchanged(t, s, before)
+}
+
+func TestRekeyRenderFailRestoresRow(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	before := insertHost(t, s, "macbook", 2223, testFP1, testPub1)
+	s.RenderKeys = func([]*store.Host) error { return errors.New("boom") }
+	rr := do(t, s, adminPeer(), http.MethodPost, "/v1/hosts/macbook/rekey", map[string]string{
+		"old_fingerprint": testFP1,
+		"pubkey":          testPub2,
+	})
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	assertError(t, rr, "keys_render_required")
+	assertHostUnchanged(t, s, before)
+}
+
+func TestRenameRenderFailRestoresRow(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	before := insertHost(t, s, "macbook", 2223, testFP1, testPub1)
+	s.RenderKeys = func([]*store.Host) error { return errors.New("boom") }
+	rr := do(t, s, adminPeer(), http.MethodPost, "/v1/hosts/macbook/rename", map[string]string{
+		"new_name": "mbp",
+	})
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	assertError(t, rr, "keys_render_required")
+	assertHostUnchanged(t, s, before)
+	if _, err := s.Store.HostByName("mbp"); !errors.Is(err, store.ErrHostNotFound) {
+		t.Fatal("new name present after failed rename")
+	}
+}
+
+func assertHostUnchanged(t *testing.T, s *Server, want *store.Host) {
+	t.Helper()
+	got, err := s.Store.HostByName(want.Name)
+	if err != nil {
+		t.Fatalf("HostByName(%s): %v", want.Name, err)
+	}
+	if got.Name != want.Name || got.Port != want.Port || got.KeyFingerprint != want.KeyFingerprint || got.Disabled != want.Disabled || got.Pubkey != want.Pubkey || got.LoginUser != want.LoginUser {
+		t.Fatalf("row changed:\n got %+v\nwant %+v", got, want)
 	}
 }
 

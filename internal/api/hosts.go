@@ -158,9 +158,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("kill_listen", "name", name, "port", h.Port, "err", err)
 		} else {
 			killed = true
-			if listening, err = s.listening(); err == nil {
-				_, still = listening[h.Port]
-			}
+			still = s.portStillListening(h.Port)
 		}
 	}
 
@@ -443,8 +441,8 @@ func logPortsAudit(a portsAudit) {
 		}
 	}
 	slog.Info("ports_audit",
-		"stale_listen", len(a.DBOwnedNotListening),
-		"orphan_listen", len(a.ListeningNotDBOwned),
+		"stale_listen", len(a.ListeningNotDBOwned),
+		"db_owned_down", len(a.DBOwnedNotListening),
 		"pids", pids,
 	)
 }
@@ -500,6 +498,32 @@ func (s *Server) killListen(port int) error {
 		return s.KillListen(port)
 	}
 	return alloc.KillListenPort(port)
+}
+
+const (
+	defaultListenGoneTries = 40
+	defaultListenGoneSleep = 50 * time.Millisecond
+)
+
+func (s *Server) portStillListening(port int) bool {
+	tries := defaultListenGoneTries
+	sleep := defaultListenGoneSleep
+	if s.ListenGoneTries > 0 {
+		tries = s.ListenGoneTries
+		sleep = s.ListenGoneSleep
+	}
+	for i := 0; i < tries; i++ {
+		listening, err := s.listening()
+		if err == nil {
+			if _, ok := listening[port]; !ok {
+				return false
+			}
+		}
+		if i+1 < tries && sleep > 0 {
+			time.Sleep(sleep)
+		}
+	}
+	return true
 }
 
 func (s *Server) now() time.Time {

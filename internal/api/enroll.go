@@ -156,6 +156,11 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		inserted = true
 		written = h
 	case existing.KeyFingerprint == fp:
+		if existing.Disabled {
+			slog.Warn("enroll_denied", "reason", "host_disabled", "name", name)
+			writeError(w, http.StatusForbidden, "host_disabled", "host "+name+" is disabled")
+			return
+		}
 		snapshot = cloneHost(existing)
 		if err := store.UpdateHostEnrollTx(tx, name, req.LoginUser, string(tagsJSON), stored, now); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "failed to update host")

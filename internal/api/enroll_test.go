@@ -259,6 +259,55 @@ func TestEnrollNameCollision(t *testing.T) {
 	}
 }
 
+func TestEnrollDisabledRejected(t *testing.T) {
+	t.Parallel()
+	s := testServer(t)
+	tok := issueJoinToken(t, s, "macbook")
+	rr := do(t, s, adminPeer(), http.MethodPost, "/v1/enroll", enrollReq(tok, "macbook", "neo", testPub1, []string{"home"}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first: %d %s", rr.Code, rr.Body)
+	}
+	rr = do(t, s, adminPeer(), http.MethodPost, "/v1/hosts/macbook/disable", map[string]any{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable: %d %s", rr.Code, rr.Body)
+	}
+	beforeKeys, err := os.ReadFile(s.Config.AuthorizedKeysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(beforeKeys), "postern:macbook") {
+		t.Fatal("disabled host still in keys")
+	}
+
+	tok2 := issueJoinToken(t, s, "macbook")
+	rr = do(t, s, adminPeer(), http.MethodPost, "/v1/enroll", enrollReq(tok2, "macbook", "debian", testPub1, []string{"lab"}))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+	assertError(t, rr, "host_disabled")
+	if unusedTokenCount(t, s) != 1 {
+		t.Fatal("403 should roll back token consume")
+	}
+
+	h, err := s.Store.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.Disabled || h.LoginUser != "neo" || h.TagsJSON != `["home"]` {
+		t.Fatalf("disabled row changed: %+v", h)
+	}
+	afterKeys, err := os.ReadFile(s.Config.AuthorizedKeysPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterKeys) != string(beforeKeys) {
+		t.Fatalf("keys changed on disabled enroll\n got %s\nwant %s", afterKeys, beforeKeys)
+	}
+	if strings.Contains(string(afterKeys), testPub1) {
+		t.Fatal("enroll returned ok-equivalent by writing a key line")
+	}
+}
+
 func TestEnrollParallelDifferentNames(t *testing.T) {
 	t.Parallel()
 	s := testServer(t)
