@@ -91,7 +91,7 @@ func (s *Store) ConsumeToken(id string, digest [32]byte, enrollName string, now 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	t, err := consumeTokenTx(tx, id, digest, enrollName, now)
+	t, err := ConsumeTokenTx(tx, id, digest, enrollName, now)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (s *Store) ConsumeToken(id string, digest [32]byte, enrollName string, now 
 	return t, nil
 }
 
-func consumeTokenTx(tx *sql.Tx, id string, digest [32]byte, enrollName string, now int64) (*Token, error) {
+func ConsumeTokenTx(tx *sql.Tx, id string, digest [32]byte, enrollName string, now int64) (*Token, error) {
 	row := tx.QueryRow(
 		`SELECT id, kind, secret_hash, expires_at, used_at, created_at, note, bound_name
 		 FROM tokens WHERE id = ?`,

@@ -27,7 +27,8 @@ const (
 )
 
 var (
-	ErrInvalidToken = errors.New("invalid token")
+	// Same sentinel as store so Parse failure and digest mismatch both match errors.Is.
+	ErrInvalidToken = store.ErrInvalidToken
 	ErrTTL          = errors.New("invalid ttl")
 
 	b32 = base32.StdEncoding.WithPadding(base32.NoPadding)

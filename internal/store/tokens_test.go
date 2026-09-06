@@ -129,6 +129,52 @@ func TestConsumeTokenWrongDigest(t *testing.T) {
 	}
 }
 
+func TestConsumeTokenTxRollback(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	row := testToken("gggggggggggggggg", 100, nil)
+	if err := st.InsertToken(row); err != nil {
+		t.Fatal(err)
+	}
+	digest := testDigest(row.ID, "secret")
+
+	tx, err := st.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConsumeTokenTx(tx, row.ID, digest, "", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.TokenByID(row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UsedAt != nil {
+		t.Fatal("rollback left used_at set")
+	}
+
+	tx, err = st.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConsumeTokenTx(tx, row.ID, digest, "", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.TokenByID(row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UsedAt == nil {
+		t.Fatal("commit did not set used_at")
+	}
+}
+
 func TestConsumeTokenNotFound(t *testing.T) {
 	t.Parallel()
 	st, _ := openTemp(t)

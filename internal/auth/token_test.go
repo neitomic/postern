@@ -413,8 +413,16 @@ func TestConsumeWrongSecret(t *testing.T) {
 		b[0] = 'a'
 	}
 	_, err = Consume(st, TokenPrefix+id+"."+string(b), "", time.Unix(row.CreatedAt, 0))
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("wrong secret: %v, want %v", err, ErrInvalidToken)
+	}
 	if !errors.Is(err, store.ErrInvalidToken) {
-		t.Fatalf("wrong secret: %v, want %v", err, store.ErrInvalidToken)
+		t.Fatalf("wrong secret not store.ErrInvalidToken: %v", err)
+	}
+
+	_, err = Consume(st, "not-a-token", "", time.Unix(row.CreatedAt, 0))
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("malformed: %v, want %v", err, ErrInvalidToken)
 	}
 }
 
