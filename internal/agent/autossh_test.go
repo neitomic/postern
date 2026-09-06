@@ -110,19 +110,22 @@ func sshGHasClearAllForwardingsYes(stdout string) bool {
 
 func TestAutosshEnvOverrides(t *testing.T) {
 	t.Parallel()
-	env := autosshEnv([]string{"PATH=/bin", "AUTOSSH_GATETIME=30", "AUTOSSH_PORT=1", "HOME=/tmp"})
+	env := autosshEnv([]string{"PATH=/bin", "AUTOSSH_GATETIME=30", "AUTOSSH_PORT=1", "AUTOSSH_PIDFILE=/old.pid", "HOME=/tmp"}, "/tmp/autossh.pid")
 	got := map[string]string{}
 	for _, e := range env {
 		k, v, ok := strings.Cut(e, "=")
 		if !ok {
 			t.Fatalf("bad env %q", e)
 		}
-		if _, dup := got[k]; dup && (k == "AUTOSSH_GATETIME" || k == "AUTOSSH_PORT") {
+		if _, dup := got[k]; dup && (k == "AUTOSSH_GATETIME" || k == "AUTOSSH_PORT" || k == "AUTOSSH_PIDFILE") {
 			t.Fatalf("duplicate %s", k)
 		}
 		got[k] = v
 	}
 	if got["AUTOSSH_GATETIME"] != "0" || got["AUTOSSH_PORT"] != "0" {
 		t.Fatalf("env = %v", env)
+	}
+	if got["AUTOSSH_PIDFILE"] != "/tmp/autossh.pid" {
+		t.Fatalf("pidfile = %q", got["AUTOSSH_PIDFILE"])
 	}
 }

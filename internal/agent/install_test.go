@@ -204,6 +204,70 @@ func TestPlistXMLEscapesExecutable(t *testing.T) {
 	}
 }
 
+func TestLaunchdDisableThenBootout(t *testing.T) {
+	t.Parallel()
+	steps := launchdDisableArgs()
+	if len(steps) != 2 {
+		t.Fatalf("steps = %v", steps)
+	}
+	if steps[0][0] != "disable" {
+		t.Fatalf("first step = %v, want disable (persistent)", steps[0])
+	}
+	if steps[1][0] != "bootout" {
+		t.Fatalf("second step = %v, want bootout", steps[1])
+	}
+	if !strings.Contains(steps[0][1], launchdLabel) || !strings.Contains(steps[1][1], launchdLabel) {
+		t.Fatalf("service target missing label: %v", steps)
+	}
+}
+
+func TestLaunchdEnableBootoutThenBootstrap(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	plist := LaunchAgentPlistPath(home)
+	steps := launchdEnableArgs(home)
+	if len(steps) != 4 {
+		t.Fatalf("steps = %v", steps)
+	}
+	if steps[0][0] != "bootout" {
+		t.Fatalf("first = %v, want bootout so the on-disk plist is reloaded", steps[0])
+	}
+	if steps[1][0] != "bootstrap" || !containsArg(steps[1], plist) {
+		t.Fatalf("second = %v, want bootstrap of %s", steps[1], plist)
+	}
+	if steps[2][0] != "enable" {
+		t.Fatalf("third = %v, want enable", steps[2])
+	}
+	if steps[3][0] != "kickstart" || !containsArg(steps[3], "-k") {
+		t.Fatalf("fourth = %v, want kickstart -k", steps[3])
+	}
+}
+
+func TestSystemdEnableRestartsWhenAlreadyActive(t *testing.T) {
+	t.Parallel()
+	inactive := systemdEnableArgs(false)
+	for _, step := range inactive {
+		if containsArg(step, "restart") {
+			t.Fatalf("inactive plan should not restart: %v", inactive)
+		}
+	}
+	if !containsArg(inactive[0], "daemon-reload") {
+		t.Fatalf("missing daemon-reload: %v", inactive)
+	}
+	if !containsArg(inactive[1], "enable") || !containsArg(inactive[1], "--now") {
+		t.Fatalf("missing enable --now: %v", inactive)
+	}
+
+	active := systemdEnableArgs(true)
+	if len(active) != 3 {
+		t.Fatalf("active plan = %v", active)
+	}
+	last := active[len(active)-1]
+	if !containsArg(last, "restart") || containsArg(last, "network-online") {
+		t.Fatalf("active plan should restart after enable --now: %v", active)
+	}
+}
+
 func TestSystemdUserUnitPath(t *testing.T) {
 	t.Parallel()
 	got := SystemdUserUnitPath("/home/neo")

@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,18 +19,20 @@ import (
 )
 
 const (
-	heartbeatEvery  = 30 * time.Second
-	heartbeatJitter = 2 * time.Second
-	heartbeatWait   = 20 * time.Second
+	heartbeatEvery      = 30 * time.Second
+	heartbeatJitter     = 2 * time.Second
+	heartbeatWait       = 20 * time.Second
+	defaultShutdownWait = 5 * time.Second
 )
 
 // RunOptions configures agent run. Zero value is the production path.
 type RunOptions struct {
-	Autossh   string
-	SSH       string
-	Heartbeat time.Duration
-	Jitter    time.Duration
-	LookPath  func(string) (string, error)
+	Autossh      string
+	SSH          string
+	Heartbeat    time.Duration
+	Jitter       time.Duration
+	ShutdownWait time.Duration
+	LookPath     func(string) (string, error)
 
 	writeSSHConfigs func(Paths, State, config.Client) error
 }
@@ -64,11 +68,13 @@ func Run(ctx context.Context, p Paths, opts RunOptions) error {
 		}
 	}
 
+	reapStaleAutossh(p.AutosshPID())
+
 	cmd := exec.Command(autossh, AutosshArgs(p.SSHConfig())...)
-	cmd.Env = autosshEnv(os.Environ())
+	cmd.Env = autosshEnv(os.Environ(), p.AutosshPID())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = autosshSysProcAttr()
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start autossh: %w", err)
 	}
@@ -83,6 +89,9 @@ func Run(ctx context.Context, p Paths, opts RunOptions) error {
 	select {
 	case waitErr := <-waitCh:
 		hbCancel()
+		if ctx.Err() != nil {
+			return nil
+		}
 		if waitErr != nil {
 			slog.Error("autossh_exit", "err", waitErr)
 			return fmt.Errorf("autossh_exit: %w", waitErr)
@@ -91,12 +100,72 @@ func Run(ctx context.Context, p Paths, opts RunOptions) error {
 		return fmt.Errorf("autossh_exit")
 	case <-ctx.Done():
 		hbCancel()
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-		}
-		<-waitCh
+		stopProcessGroup(cmd, waitCh, shutdownWait(opts))
 		return nil
 	}
+}
+
+func shutdownWait(opts RunOptions) time.Duration {
+	if opts.ShutdownWait > 0 {
+		return opts.ShutdownWait
+	}
+	return defaultShutdownWait
+}
+
+func stopProcessGroup(cmd *exec.Cmd, waitCh <-chan error, wait time.Duration) {
+	if cmd == nil || cmd.Process == nil {
+		select {
+		case <-waitCh:
+		default:
+		}
+		return
+	}
+	pid := cmd.Process.Pid
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-waitCh:
+		return
+	case <-timer.C:
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-waitCh
+	}
+}
+
+func reapStaleAutossh(pidfile string) {
+	raw, err := os.ReadFile(pidfile)
+	if err != nil {
+		return
+	}
+	_ = os.Remove(pidfile)
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 1 {
+		return
+	}
+	if !processLooksLikeAutossh(pid) {
+		return
+	}
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+}
+
+func processLooksLikeAutossh(pid int) bool {
+	if b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		return strings.Contains(strings.ToLower(strings.ReplaceAll(string(b), "\x00", " ")), "autossh")
+	}
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), "autossh")
 }
 
 func heartbeatLoop(ctx context.Context, p Paths, opts RunOptions) {

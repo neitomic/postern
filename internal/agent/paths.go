@@ -32,6 +32,7 @@ func (p Paths) KnownHosts() string    { return filepath.Join(p.DataDir, "known_h
 func (p Paths) SSHConfig() string     { return filepath.Join(p.DataDir, "ssh_config") }
 func (p Paths) SSHConfigRPC() string  { return filepath.Join(p.DataDir, "ssh_config.rpc") }
 func (p Paths) AgentLog() string      { return filepath.Join(p.DataDir, "agent.log") }
+func (p Paths) AutosshPID() string    { return filepath.Join(p.DataDir, "autossh.pid") }
 
 func (p Paths) Mkdir() error {
 	if err := mkdir(p.ConfigDir); err != nil {

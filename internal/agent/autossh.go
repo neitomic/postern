@@ -29,15 +29,19 @@ func HeartbeatArgs(rpcConfig string) []string {
 	return []string{"-T", "-F", rpcConfig, tunnelHost, agentAPICommand}
 }
 
-func autosshEnv(parent []string) []string {
-	out := make([]string, 0, len(parent)+2)
+func autosshEnv(parent []string, pidfile string) []string {
+	out := make([]string, 0, len(parent)+3)
 	for _, e := range parent {
-		if strings.HasPrefix(e, "AUTOSSH_GATETIME=") || strings.HasPrefix(e, "AUTOSSH_PORT=") {
+		if strings.HasPrefix(e, "AUTOSSH_GATETIME=") || strings.HasPrefix(e, "AUTOSSH_PORT=") || strings.HasPrefix(e, "AUTOSSH_PIDFILE=") {
 			continue
 		}
 		out = append(out, e)
 	}
-	return append(out, "AUTOSSH_GATETIME=0", "AUTOSSH_PORT=0")
+	out = append(out, "AUTOSSH_GATETIME=0", "AUTOSSH_PORT=0")
+	if pidfile != "" {
+		out = append(out, "AUTOSSH_PIDFILE="+pidfile)
+	}
+	return out
 }
 
 func parseRemoteForwardListenPort(body []byte) (int, error) {

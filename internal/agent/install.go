@@ -158,6 +158,36 @@ func Status(home string, stdout, stderr io.Writer) error {
 	}
 }
 
+func launchdEnableArgs(home string) [][]string {
+	plist := LaunchAgentPlistPath(home)
+	domain, service := launchctlTarget()
+	return [][]string{
+		{"bootout", service},
+		{"bootstrap", domain, plist},
+		{"enable", service},
+		{"kickstart", "-k", service},
+	}
+}
+
+func launchdDisableArgs() [][]string {
+	_, service := launchctlTarget()
+	return [][]string{
+		{"disable", service},
+		{"bootout", service},
+	}
+}
+
+func systemdEnableArgs(wasActive bool) [][]string {
+	steps := [][]string{
+		{"--user", "daemon-reload"},
+		{"--user", "enable", "--now", systemdUnitName},
+	}
+	if wasActive {
+		steps = append(steps, []string{"--user", "restart", systemdUnitName})
+	}
+	return steps
+}
+
 func enableLaunchd(home string) error {
 	plist := LaunchAgentPlistPath(home)
 	if _, err := os.Stat(plist); err != nil {
@@ -166,31 +196,32 @@ func enableLaunchd(home string) error {
 		}
 		return err
 	}
-	domain, service := launchctlTarget()
-	// bootstrap errors when the job is already loaded; enable+kickstart still apply.
-	_ = runQuiet("launchctl", "bootstrap", domain, plist)
-	if err := runQuiet("launchctl", "enable", service); err != nil {
-		return fmt.Errorf("launchctl enable: %w", err)
-	}
-	if err := runQuiet("launchctl", "kickstart", "-k", service); err != nil {
-		return fmt.Errorf("launchctl kickstart: %w", err)
+	// bootout then bootstrap so a rewritten plist (new os.Executable path) is what runs.
+	for i, args := range launchdEnableArgs(home) {
+		if err := runQuiet("launchctl", args...); err != nil {
+			if i == 0 {
+				continue
+			}
+			return fmt.Errorf("launchctl %s: %w", args[0], err)
+		}
 	}
 	return nil
 }
 
 func disableLaunchd() error {
-	_, service := launchctlTarget()
-	// bootout fails if the job is not loaded; disable must still succeed.
-	_ = runQuiet("launchctl", "bootout", service)
+	// disable is the persistent gui-domain flag; bootout only stops this login.
+	for _, args := range launchdDisableArgs() {
+		_ = runQuiet("launchctl", args...)
+	}
 	return nil
 }
 
 func enableSystemd() error {
-	if err := runQuiet("systemctl", "--user", "daemon-reload"); err != nil {
-		return fmt.Errorf("systemctl daemon-reload: %w", err)
-	}
-	if err := runQuiet("systemctl", "--user", "enable", "--now", systemdUnitName); err != nil {
-		return fmt.Errorf("systemctl enable: %w", err)
+	wasActive := runQuiet("systemctl", "--user", "is-active", "--quiet", systemdUnitName) == nil
+	for _, args := range systemdEnableArgs(wasActive) {
+		if err := runQuiet("systemctl", args...); err != nil {
+			return fmt.Errorf("systemctl %s: %w", strings.Join(args, " "), err)
+		}
 	}
 	return nil
 }

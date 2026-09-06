@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -183,6 +186,117 @@ func TestRunHeartbeatWhileChildAliveThenExitOnDeath(t *testing.T) {
 	_ = os.Remove(lock)
 	<-done
 	t.Fatal("heartbeat was not sent while child was alive")
+}
+
+func TestRunShutdownSIGKILLsStubbornChild(t *testing.T) {
+	t.Parallel()
+	p, _, _ := setupEnrolled(t)
+	dir := t.TempDir()
+	alive := filepath.Join(dir, "alive")
+	autossh := writeScript(t, dir, "autossh", "#!/bin/sh\ntrap '' TERM\ntouch \""+alive+"\"\nwhile true; do sleep 0.05; done\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, p, RunOptions{
+			Autossh:      autossh,
+			SSH:          autossh,
+			Heartbeat:    time.Hour,
+			ShutdownWait: 200 * time.Millisecond,
+		})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(alive); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(alive); err != nil {
+		cancel()
+		<-done
+		t.Fatal("child did not start")
+	}
+	start := time.Now()
+	cancel()
+	err := <-done
+	if err != nil {
+		t.Fatalf("shutdown err = %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("shutdown did not SIGKILL a TERM-ignoring child")
+	}
+}
+
+func TestRunShutdownReturnsNilForCooperativeChild(t *testing.T) {
+	t.Parallel()
+	p, _, _ := setupEnrolled(t)
+	dir := t.TempDir()
+	alive := filepath.Join(dir, "alive")
+	autossh := writeScript(t, dir, "autossh", "#!/bin/sh\ntrap 'exit 0' TERM\ntouch \""+alive+"\"\nwhile true; do sleep 0.05; done\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, p, RunOptions{
+			Autossh:      autossh,
+			SSH:          autossh,
+			Heartbeat:    time.Hour,
+			ShutdownWait: 2 * time.Second,
+		})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(alive); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	start := time.Now()
+	cancel()
+	err := <-done
+	if err != nil {
+		t.Fatalf("cooperative shutdown err = %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("SIGTERM-cooperative child should not wait for SIGKILL timeout")
+	}
+}
+
+func TestAutosshSysProcAttrSetpgid(t *testing.T) {
+	t.Parallel()
+	if !autosshSysProcAttr().Setpgid {
+		t.Fatal("Setpgid required so SIGTERM/SIGKILL reach autossh+ssh")
+	}
+}
+
+func TestReapStaleAutossh(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pidfile := filepath.Join(dir, "autossh.pid")
+	script := writeScript(t, dir, "autossh", "#!/bin/sh\ntrap '' TERM\nwhile true; do sleep 0.05; done\n")
+	cmd := exec.Command(script)
+	cmd.SysProcAttr = autosshSysProcAttr()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	defer func() {
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reapStaleAutossh(pidfile)
+	if _, err := os.Stat(pidfile); !os.IsNotExist(err) {
+		t.Fatal("pidfile should be removed")
+	}
+	select {
+	case <-waited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stale autossh still alive")
+	}
 }
 
 func TestCheckRemoteForwardMismatch(t *testing.T) {
