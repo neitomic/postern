@@ -3,12 +3,22 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/neitomic/postern/internal/agent"
 	"github.com/neitomic/postern/internal/config"
 )
+
+func isolateHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	return home
+}
 
 func TestJoinHelpDocumentsSubmit(t *testing.T) {
 	cmd := newRoot()
@@ -99,10 +109,7 @@ func TestRootHelpListsInstallAndConfig(t *testing.T) {
 }
 
 func TestConfigSetGetShow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_DATA_HOME", home+"/.local/share")
+	_ = isolateHome(t)
 	run := func(args ...string) string {
 		t.Helper()
 		cmd := newRoot()
@@ -145,8 +152,7 @@ func TestConfigSetGetShow(t *testing.T) {
 }
 
 func TestConfigSetRejectsUnknownKey(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	_ = isolateHome(t)
 	cmd := newRoot()
 	cmd.SetArgs([]string{"config", "set", "token", "nope"})
 	var buf bytes.Buffer
@@ -158,10 +164,7 @@ func TestConfigSetRejectsUnknownKey(t *testing.T) {
 }
 
 func TestInstallCopiesBinaryNoService(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_DATA_HOME", home+"/.local/share")
+	home := isolateHome(t)
 	binDir := home + "/opt"
 	cmd := newRoot()
 	cmd.SetArgs([]string{"install", "--bin-dir", binDir, "--no-service"})
@@ -188,10 +191,7 @@ func TestInstallCopiesBinaryNoService(t *testing.T) {
 }
 
 func TestInstallWritesUnitNoEnable(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
-	t.Setenv("XDG_DATA_HOME", home+"/.local/share")
+	home := isolateHome(t)
 	cmd := newRoot()
 	cmd.SetArgs([]string{"install", "--no-enable"})
 	var buf bytes.Buffer
@@ -217,8 +217,7 @@ func fileExists(path string) bool {
 }
 
 func TestInitMergesExistingConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	_ = isolateHome(t)
 	run := func(args ...string) {
 		t.Helper()
 		cmd := newRoot()

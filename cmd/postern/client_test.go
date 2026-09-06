@@ -309,6 +309,8 @@ func swapFetch(fn func() ([]byte, error)) func() {
 
 func writeClientTOML(t *testing.T, home, identity string) {
 	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	dir := filepath.Join(home, ".config", "postern")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
