@@ -13,8 +13,25 @@ const (
 	addrUnspecified = "00000000"
 )
 
+type tcpSock struct {
+	Port  int
+	Inode uint64
+}
+
 func parseProcNetTCP(r io.Reader, min, max int) (map[int]struct{}, error) {
-	out := make(map[int]struct{})
+	list, err := parseProcNetTCPList(r, min, max)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int]struct{}, len(list))
+	for _, s := range list {
+		out[s.Port] = struct{}{}
+	}
+	return out, nil
+}
+
+func parseProcNetTCPList(r io.Reader, min, max int) ([]tcpSock, error) {
+	var out []tcpSock
 	sc := bufio.NewScanner(r)
 	if sc.Scan() {
 		// skip header
@@ -37,7 +54,11 @@ func parseProcNetTCP(r io.Reader, min, max int) (map[int]struct{}, error) {
 		if port < min || port > max {
 			continue
 		}
-		out[port] = struct{}{}
+		var inode uint64
+		if len(fields) > 9 {
+			inode, _ = strconv.ParseUint(fields[9], 10, 64)
+		}
+		out = append(out, tcpSock{Port: port, Inode: inode})
 	}
 	return out, sc.Err()
 }

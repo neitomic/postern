@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	ErrHostNotFound = errors.New("no_such_host")
-	ErrHostChanged  = errors.New("host row changed")
+	ErrHostNotFound        = errors.New("no_such_host")
+	ErrHostChanged         = errors.New("host row changed")
+	ErrFingerprintMismatch = errors.New("fingerprint_mismatch")
 )
 
 type querier interface {
@@ -126,6 +127,121 @@ func UpdateHostEnrollTx(q querier, name, loginUser, tagsJSON, pubkey string, upd
 		return ErrHostNotFound
 	}
 	return nil
+}
+
+func (s *Store) SetHostDisabled(name string, disabled bool, updatedAt int64) error {
+	flag := 0
+	if disabled {
+		flag = 1
+	}
+	res, err := s.db.Exec(`UPDATE hosts SET disabled = ?, updated_at = ? WHERE name = ?`, flag, updatedAt, name)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.HostByName(name); errors.Is(err, ErrHostNotFound) {
+			return ErrHostNotFound
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) RenameHost(oldName, newName string, updatedAt int64) error {
+	res, err := s.db.Exec(`UPDATE hosts SET name = ?, updated_at = ? WHERE name = ?`, newName, updatedAt, oldName)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrHostNotFound
+	}
+	return nil
+}
+
+func (s *Store) RekeyHost(name, oldFP, newFP, pubkey string, updatedAt int64) error {
+	res, err := s.db.Exec(
+		`UPDATE hosts SET key_fingerprint = ?, pubkey = ?, updated_at = ? WHERE name = ? AND key_fingerprint = ?`,
+		newFP, pubkey, updatedAt, name, oldFP,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		h, err := s.HostByName(name)
+		if errors.Is(err, ErrHostNotFound) {
+			return ErrHostNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if h.KeyFingerprint != oldFP {
+			return ErrFingerprintMismatch
+		}
+	}
+	return nil
+}
+
+func (s *Store) UpdateHostSnapshot(h *Host) error {
+	if h == nil {
+		return ErrHostNotFound
+	}
+	tags := h.TagsJSON
+	if tags == "" {
+		tags = "[]"
+	}
+	disabled := 0
+	if h.Disabled {
+		disabled = 1
+	}
+	res, err := s.db.Exec(
+		`UPDATE hosts SET name = ?, login_user = ?, port = ?, key_fingerprint = ?, pubkey = ?, tags_json = ?, last_seen = ?, created_at = ?, updated_at = ?, disabled = ?
+		 WHERE id = ?`,
+		h.Name, h.LoginUser, h.Port, h.KeyFingerprint, h.Pubkey, tags, h.LastSeen, h.CreatedAt, h.UpdatedAt, disabled, h.ID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrHostNotFound
+	}
+	return nil
+}
+
+func (s *Store) InsertHostRestored(h *Host) error {
+	if h == nil {
+		return ErrHostNotFound
+	}
+	tags := h.TagsJSON
+	if tags == "" {
+		tags = "[]"
+	}
+	disabled := 0
+	if h.Disabled {
+		disabled = 1
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO hosts (id, name, login_user, port, key_fingerprint, pubkey, tags_json, last_seen, created_at, updated_at, disabled)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.ID, h.Name, h.LoginUser, h.Port, h.KeyFingerprint, h.Pubkey, tags, h.LastSeen, h.CreatedAt, h.UpdatedAt, disabled,
+	)
+	return err
 }
 
 func (s *Store) DeleteHostByName(name string) error {

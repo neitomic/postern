@@ -69,6 +69,18 @@ func (s *Store) ListTokens() ([]*Token, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) ExpireUnusedTokens(now int64) (int, error) {
+	res, err := s.db.Exec(`DELETE FROM tokens WHERE used_at IS NULL AND expires_at <= ?`, now)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
 func (s *Store) RevokeToken(id string) error {
 	res, err := s.db.Exec(`DELETE FROM tokens WHERE id = ?`, id)
 	if err != nil {

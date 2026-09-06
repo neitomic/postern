@@ -337,6 +337,127 @@ func TestRestoreHostEnrollRequiresUpdatedAt(t *testing.T) {
 	}
 }
 
+func TestSetDisabledRenameRekey(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "macbook",
+		LoginUser:      "neo",
+		Port:           2223,
+		KeyFingerprint: "SHA256:aaaa",
+		Pubkey:         "ssh-ed25519 a",
+		CreatedAt:      1,
+		UpdatedAt:      1,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetHostDisabled("macbook", true, 2); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Disabled || got.UpdatedAt != 2 || got.Port != 2223 {
+		t.Fatalf("disabled = %+v", got)
+	}
+	if err := st.SetHostDisabled("macbook", true, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RenameHost("macbook", "mbp", 4); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.HostByName("macbook"); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("old name: %v", err)
+	}
+	got, err = st.HostByName("mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Port != 2223 || !got.Disabled {
+		t.Fatalf("renamed = %+v", got)
+	}
+	if err := st.RekeyHost("mbp", "SHA256:aaaa", "SHA256:bbbb", "ssh-ed25519 b", 5); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.HostByName("mbp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.KeyFingerprint != "SHA256:bbbb" || got.Pubkey != "ssh-ed25519 b" || got.Port != 2223 {
+		t.Fatalf("rekey = %+v", got)
+	}
+	if err := st.RekeyHost("mbp", "SHA256:nope", "SHA256:cccc", "ssh-ed25519 c", 6); !errors.Is(err, ErrFingerprintMismatch) {
+		t.Fatalf("mismatch: %v", err)
+	}
+	if err := st.SetHostDisabled("missing", true, 1); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("missing disable: %v", err)
+	}
+}
+
+func TestExpireUnusedTokens(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	unusedExpired := testToken("aaaaaaaaaaaaaaaa", 50, nil)
+	unusedValid := testToken("bbbbbbbbbbbbbbbb", 200, nil)
+	usedExpired := testToken("cccccccccccccccc", 50, nil)
+	used := int64(10)
+	usedExpired.UsedAt = &used
+	for _, tok := range []*Token{unusedExpired, unusedValid, usedExpired} {
+		if err := st.InsertToken(tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := st.ExpireUnusedTokens(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expired = %d", n)
+	}
+	if _, err := st.TokenByID(unusedExpired.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("unused expired still there: %v", err)
+	}
+	if _, err := st.TokenByID(unusedValid.ID); err != nil {
+		t.Fatalf("valid removed: %v", err)
+	}
+	if _, err := st.TokenByID(usedExpired.ID); err != nil {
+		t.Fatalf("used removed: %v", err)
+	}
+}
+
+func TestInsertHostRestored(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "macbook",
+		LoginUser:      "neo",
+		Port:           2223,
+		KeyFingerprint: "SHA256:aaaa",
+		Pubkey:         "ssh-ed25519 a",
+		CreatedAt:      1,
+		UpdatedAt:      2,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	snap := h
+	if err := st.DeleteHostByName("macbook"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertHostRestored(&snap); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != snap.ID || got.Port != 2223 {
+		t.Fatalf("restored = %+v", got)
+	}
+}
+
 func TestUniqueColumn(t *testing.T) {
 	t.Parallel()
 	st, _ := openTemp(t)

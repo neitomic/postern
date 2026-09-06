@@ -26,6 +26,9 @@ type Server struct {
 	Probe      alloc.ListenProbe
 	LookupPeer func(net.Conn) (auth.Peer, error)
 	RenderKeys func(hosts []*store.Host) error
+	Now        func() time.Time
+	PortPIDs   func(min, max int) map[int]int
+	KillListen func(port int) error
 	keysMu     sync.Mutex // list+write+compensate; concurrent enrolls otherwise clobber authorized_keys
 }
 
@@ -58,6 +61,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/tokens/{id}", s.requireAdmin(s.handleRevokeToken))
 	mux.HandleFunc("POST /v1/enroll", s.requireAdmin(s.handleEnroll))
 	mux.HandleFunc("GET /v1/hosts", s.requireAdmin(s.handleListHosts))
+	mux.HandleFunc("GET /v1/hosts/{name}", s.requireAdmin(s.handleShowHost))
+	mux.HandleFunc("DELETE /v1/hosts/{name}", s.requireAdmin(s.handleDeleteHost))
+	mux.HandleFunc("POST /v1/hosts/{name}/disable", s.requireAdmin(s.handleDisableHost))
+	mux.HandleFunc("POST /v1/hosts/{name}/enable", s.requireAdmin(s.handleEnableHost))
+	mux.HandleFunc("POST /v1/hosts/{name}/rename", s.requireAdmin(s.handleRenameHost))
+	mux.HandleFunc("POST /v1/hosts/{name}/rekey", s.requireAdmin(s.handleRekeyHost))
+	mux.HandleFunc("POST /v1/gc", s.requireAdmin(s.handleGC))
+	mux.HandleFunc("GET /v1/ports", s.requireAdmin(s.handlePortsAudit))
 	mux.HandleFunc("POST /v1/authorized-keys/render", s.requireAdmin(s.handleRenderKeys))
 	mux.HandleFunc("POST /v1/agent/heartbeat", s.requireAgent(s.notImplemented))
 	mux.HandleFunc("GET /v1/agent/self", s.requireAgent(s.notImplemented))

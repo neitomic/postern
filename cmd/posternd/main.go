@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -9,8 +10,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type exitCodeError struct {
+	error
+	code int
+}
+
 func main() {
 	if err := newRoot().Execute(); err != nil {
+		var ec exitCodeError
+		if errors.As(err, &ec) {
+			os.Exit(ec.code)
+		}
 		os.Exit(1)
 	}
 }
@@ -42,6 +52,9 @@ func newRoot() *cobra.Command {
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newTokenCmd())
 	cmd.AddCommand(newEnrollCmd())
+	cmd.AddCommand(newHostsCmd())
+	cmd.AddCommand(newGCCmd())
+	cmd.AddCommand(newPortsCmd())
 	cmd.AddCommand(newAuthorizedKeysCmd())
 	return cmd
 }
