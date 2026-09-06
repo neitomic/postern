@@ -1,15 +1,21 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/neitomic/postern/internal/agent"
 	"github.com/neitomic/postern/internal/version"
 	"github.com/spf13/cobra"
 )
 
 func main() {
 	if err := newRoot().Execute(); err != nil {
+		var be *agent.BindError
+		if errors.As(err, &be) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }
@@ -36,5 +42,8 @@ func newRoot() *cobra.Command {
 			fmt.Println(version.Version)
 		},
 	})
+	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newJoinCmd())
+	cmd.AddCommand(newEnrollMachineCmd())
 	return cmd
 }

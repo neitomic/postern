@@ -1,8 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -24,11 +28,68 @@ func DefaultClient() Client {
 }
 
 func ClientPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.toml"), nil
+}
+
+// ConfigDir is $XDG_CONFIG_HOME/postern on Linux and ~/.config/postern on
+// macOS (not UserConfigDir, which is ~/Library/Application Support).
+func ConfigDir() (string, error) {
+	return xdgDir("XDG_CONFIG_HOME", ".config")
+}
+
+// DataDir is $XDG_DATA_HOME/postern on Linux and ~/.local/share/postern on macOS.
+func DataDir() (string, error) {
+	return xdgDir("XDG_DATA_HOME", filepath.Join(".local", "share"))
+}
+
+func xdgDir(env, rel string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "postern", "config.toml"), nil
+	base := filepath.Join(home, rel)
+	if runtime.GOOS != "darwin" {
+		if v := os.Getenv(env); v != "" {
+			base = v
+		}
+	}
+	return filepath.Join(base, "postern"), nil
+}
+
+// ParseServer splits USER@HOST or USER@HOST:PORT. Port defaults to 22.
+func ParseServer(server string) (user, host string, port int, err error) {
+	s := strings.TrimSpace(server)
+	if s == "" {
+		return "", "", 0, fmt.Errorf("empty server")
+	}
+	port = 22
+	if i := strings.LastIndex(s, "@"); i >= 0 {
+		user = s[:i]
+		s = s[i+1:]
+		if user == "" {
+			return "", "", 0, fmt.Errorf("invalid server %q: missing user", server)
+		}
+	}
+	host = s
+	if h, p, ok := strings.Cut(s, ":"); ok {
+		if h == "" || strings.Contains(h, ":") {
+			return "", "", 0, fmt.Errorf("invalid server %q: missing host", server)
+		}
+		n, convErr := strconv.Atoi(p)
+		if convErr != nil || n < 1 || n > 65535 {
+			return "", "", 0, fmt.Errorf("invalid server %q: invalid port", server)
+		}
+		host = h
+		port = n
+	}
+	if host == "" {
+		return "", "", 0, fmt.Errorf("invalid server %q: missing host", server)
+	}
+	return user, host, port, nil
 }
 
 func LoadClient(path string) (Client, error) {
