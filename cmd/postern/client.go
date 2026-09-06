@@ -258,8 +258,8 @@ func controlSSHArgs(cfg config.Client, knownHosts string, remote ...string) []st
 }
 
 func controlSSHDest(cfg config.Client) []string {
-	user, host, port := config.ParseServer(cfg.Server)
-	if host == "" {
+	user, host, port, err := config.ParseServer(cfg.Server)
+	if err != nil || host == "" {
 		host = cfg.Server
 	}
 	dest := host
