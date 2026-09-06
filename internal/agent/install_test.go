@@ -232,11 +232,23 @@ func TestLaunchdEnableBootoutThenBootstrap(t *testing.T) {
 	if steps[0][0] != "bootout" {
 		t.Fatalf("first = %v, want bootout so the on-disk plist is reloaded", steps[0])
 	}
-	if steps[1][0] != "bootstrap" || !containsArg(steps[1], plist) {
-		t.Fatalf("second = %v, want bootstrap of %s", steps[1], plist)
+	if steps[1][0] != "enable" {
+		t.Fatalf("second = %v, want enable before bootstrap (disabled labels reject bootstrap)", steps[1])
 	}
-	if steps[2][0] != "enable" {
-		t.Fatalf("third = %v, want enable", steps[2])
+	if steps[2][0] != "bootstrap" || !containsArg(steps[2], plist) {
+		t.Fatalf("third = %v, want bootstrap of %s", steps[2], plist)
+	}
+	enableAt, bootstrapAt := -1, -1
+	for i, step := range steps {
+		if len(step) > 0 && step[0] == "enable" {
+			enableAt = i
+		}
+		if len(step) > 0 && step[0] == "bootstrap" {
+			bootstrapAt = i
+		}
+	}
+	if enableAt < 0 || bootstrapAt < 0 || enableAt > bootstrapAt {
+		t.Fatalf("enable must precede bootstrap: %v", steps)
 	}
 	if steps[3][0] != "kickstart" || !containsArg(steps[3], "-k") {
 		t.Fatalf("fourth = %v, want kickstart -k", steps[3])

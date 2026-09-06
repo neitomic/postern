@@ -163,8 +163,8 @@ func launchdEnableArgs(home string) [][]string {
 	domain, service := launchctlTarget()
 	return [][]string{
 		{"bootout", service},
-		{"bootstrap", domain, plist},
 		{"enable", service},
+		{"bootstrap", domain, plist},
 		{"kickstart", "-k", service},
 	}
 }
@@ -196,7 +196,7 @@ func enableLaunchd(home string) error {
 		}
 		return err
 	}
-	// bootout then bootstrap so a rewritten plist (new os.Executable path) is what runs.
+	// bootout (reload plist), enable before bootstrap (disabled labels reject bootstrap), kickstart.
 	for i, args := range launchdEnableArgs(home) {
 		if err := runQuiet("launchctl", args...); err != nil {
 			if i == 0 {
