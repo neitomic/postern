@@ -141,3 +141,28 @@ func TestParseServer(t *testing.T) {
 		t.Fatal("bad port")
 	}
 }
+
+func TestJumpFromServerAndOverrides(t *testing.T) {
+	t.Parallel()
+	c := Client{Server: "debian@vps.example.net"}
+	user, host, port := c.Jump()
+	if user != "debian" || host != "vps.example.net" || port != 22 {
+		t.Fatalf("Jump() = %q %q %d", user, host, port)
+	}
+
+	c = Client{
+		Server:   "debian@vps.example.net:22",
+		JumpUser: "other",
+		JumpHost: "vps2.example.net",
+		JumpPort: 2222,
+	}
+	user, host, port = c.Jump()
+	if user != "other" || host != "vps2.example.net" || port != 2222 {
+		t.Fatalf("Jump() overrides = %q %q %d", user, host, port)
+	}
+
+	user, host, port, err := ParseServer("debian@vps.example.net:2200")
+	if err != nil || user != "debian" || host != "vps.example.net" || port != 2200 {
+		t.Fatalf("ParseServer = %q %q %d %v", user, host, port, err)
+	}
+}

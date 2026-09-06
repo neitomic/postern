@@ -18,6 +18,9 @@ type Client struct {
 	LocalSSHPort int    `toml:"local_ssh_port"`
 	IdentityFile string `toml:"identity_file"`
 	PosterndPath string `toml:"posternd_path"`
+	JumpUser     string `toml:"jump_user"`
+	JumpHost     string `toml:"jump_host"`
+	JumpPort     int    `toml:"jump_port"`
 }
 
 func DefaultClient() Client {
@@ -113,4 +116,46 @@ func (c Client) Save(path string) error {
 		return err
 	}
 	return os.Chmod(path, 0o600)
+}
+
+func KnownHostsPath() (string, error) {
+	dir, err := DataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "known_hosts"), nil
+}
+
+func ClientSSHConfigPath() (string, error) {
+	dir, err := DataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "client.ssh_config"), nil
+}
+
+func UserSSHConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ssh", "config"), nil
+}
+
+// Jump returns jump_user/host/port, filling blanks from server.
+func (c Client) Jump() (user, host string, port int) {
+	user, host, port, _ = ParseServer(c.Server)
+	if c.JumpUser != "" {
+		user = c.JumpUser
+	}
+	if c.JumpHost != "" {
+		host = c.JumpHost
+	}
+	if c.JumpPort > 0 {
+		port = c.JumpPort
+	}
+	if port == 0 {
+		port = 22
+	}
+	return user, host, port
 }

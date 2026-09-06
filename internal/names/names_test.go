@@ -168,3 +168,16 @@ func TestValidTags(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeTag(t *testing.T) {
+	t.Parallel()
+	if got := SanitizeTag("home"); got != "home" {
+		t.Fatalf("got %q", got)
+	}
+	if got := SanitizeTag("home#lab"); got != "homelab" {
+		t.Fatalf("got %q", got)
+	}
+	if got := SanitizeTag("a\nb\rc"); got != "abc" {
+		t.Fatalf("got %q", got)
+	}
+}

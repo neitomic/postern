@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 const MaxTags = 8
@@ -71,4 +72,16 @@ func ValidTags(tags []string) error {
 		}
 	}
 	return nil
+}
+
+// SanitizeTag strips characters that would break an ssh_config comment.
+func SanitizeTag(tag string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '#', '\n', '\r', 0:
+			return -1
+		default:
+			return r
+		}
+	}, tag)
 }

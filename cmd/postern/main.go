@@ -10,11 +10,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type exitCodeError struct {
+	error
+	code int
+}
+
 func main() {
 	if err := newRoot().Execute(); err != nil {
 		var be *agent.BindError
 		if errors.As(err, &be) {
 			os.Exit(2)
+		}
+		var ec exitCodeError
+		if errors.As(err, &ec) {
+			os.Exit(ec.code)
 		}
 		os.Exit(1)
 	}
@@ -46,5 +55,8 @@ func newRoot() *cobra.Command {
 	cmd.AddCommand(newJoinCmd())
 	cmd.AddCommand(newEnrollMachineCmd())
 	cmd.AddCommand(newAgentCmd())
+	cmd.AddCommand(newLSCmd())
+	cmd.AddCommand(newSSHConfigCmd())
+	cmd.AddCommand(newSSHCmd())
 	return cmd
 }
