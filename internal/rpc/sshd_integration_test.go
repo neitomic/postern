@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -184,18 +183,12 @@ func testSSHDLive(t *testing.T, sshd, root, fixture string) {
 	}
 	tcmd := exec.Command(sshd, "-t", "-f", sshdCfg, "-e")
 	if out, err := tcmd.CombinedOutput(); err != nil {
-		if runtime.GOOS != "linux" {
-			t.Skipf("live sshd_config rejected on %s (%s): %v\n%s", runtime.GOOS, sshd, err, out)
-		}
 		t.Fatalf("sshd -t live: %v\n%s", err, out)
 	}
 
 	sshdCmd, sshdLog := startSSHD(t, sshd, sshdCfg)
 	if err := waitTCP(fmt.Sprintf("127.0.0.1:%d", sshdPort), 5*time.Second); err != nil {
 		_ = sshdCmd.Process.Kill()
-		if runtime.GOOS != "linux" {
-			t.Skipf("unprivileged sshd did not listen on %s: %v\n%s", runtime.GOOS, err, sshdLog.String())
-		}
 		t.Fatalf("sshd did not listen: %v\n%s", err, sshdLog.String())
 	}
 

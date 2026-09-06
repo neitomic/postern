@@ -1031,9 +1031,11 @@ systemctl --user enable --now postern-agent.service
 
 Minimum OpenSSH: **8.0+** (Debian 11+). Required: `AllowTcpForwarding remote` (7.4+), `permitlisten` (7.8+), `PermitUserEnvironment` pattern-list (8.0+).
 
-Debian’s main `sshd_config` has `Include /etc/ssh/sshd_config.d/*.conf` **at the top**. A drop-in that starts `Match User postern` and never ends the Match causes every following keyword in the **main file** to be parsed inside that Match. Keywords illegal in Match (`Port`, …) make `sshd -t` fail, or `PermitTTY no` / `ForceCommand` / `AllowTcpForwarding remote` leak onto `debian` and lock the operator out.
+Debian’s main `sshd_config` has `Include /etc/ssh/sshd_config.d/*.conf` **at the top**. A drop-in that starts `Match User postern` and never ends the Match causes every following keyword in the **main file** to be parsed inside that Match. Keywords illegal in Match (`Port`, `PermitUserEnvironment`, …) make `sshd -t` fail, or `PermitTTY no` / `ForceCommand` / `AllowTcpForwarding remote` leak onto `debian` and lock the operator out.
 
 **Every Postern drop-in MUST end with `Match all`.** `scripts/vps-bootstrap.sh` **must** run `sshd -t` and **exit non-zero** before `systemctl reload ssh`.
+
+`PermitUserEnvironment` is **global-only** (not in the Match-allowed keyword list). Put the pattern-list above `Match User postern`. It is not `yes`: only `POSTERN_NAME` and `POSTERN_ROLE` from `authorized_keys` `environment=` (and `~/.ssh/environment`) are accepted, so debian cannot inject `PATH` / `LD_PRELOAD` this way.
 
 Fixture `contrib/sshd/50-postern.conf` (also installed as `/etc/ssh/sshd_config.d/50-postern.conf`):
 
@@ -1041,6 +1043,11 @@ Fixture `contrib/sshd/50-postern.conf` (also installed as `/etc/ssh/sshd_config.
 # Postern tunnel user.
 # Debian Include is at the top of sshd_config; close this Match so later
 # keywords in the main file are not captured. See sshd_config(5) Match.
+#
+# PermitUserEnvironment is global-only (illegal inside Match on OpenSSH).
+# The pattern-list still restricts which authorized_keys environment=
+# names are accepted.
+PermitUserEnvironment POSTERN_NAME,POSTERN_ROLE
 Match User postern
     AllowTcpForwarding remote
     GatewayPorts no
@@ -1053,7 +1060,6 @@ Match User postern
     ClientAliveInterval 30
     ClientAliveCountMax 3
     AuthorizedKeysFile /var/lib/postern/authorized_keys
-    PermitUserEnvironment POSTERN_NAME,POSTERN_ROLE
     PasswordAuthentication no
     KbdInteractiveAuthentication no
     PubkeyAuthentication yes
@@ -1070,7 +1076,7 @@ sshd -T -C user=debian,host=localhost,addr=127.0.0.1
 
 Assert `postern` has `forcecommand`, `permitopen none`, `allowtcpforwarding remote`; assert `debian` does **not** have `forcecommand` `/usr/bin/posternd-shell` and does **not** have `permitty no`.
 
-Global (outside Match, already default): `GatewayPorts no`. Do not set `MaxStartups` here.
+Global (outside Match): `PermitUserEnvironment POSTERN_NAME,POSTERN_ROLE` (required; illegal inside Match). `GatewayPorts no` is already default. Do not set `MaxStartups` here.
 
 Admin user `debian` is not in the Match: normal shell, default `AllowTcpForwarding yes` for `ProxyJump`.
 
