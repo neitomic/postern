@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,6 +175,33 @@ func TestUniqueConstraints(t *testing.T) {
 	}
 	if got.Name != "macbook" || got.Port != 2223 {
 		t.Fatalf("HostByName = %+v", got)
+	}
+
+	if _, err := st.HostByName("missing"); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("HostByName missing: %v, want %v", err, ErrHostNotFound)
+	}
+
+	list, err := st.ListHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("ListHosts len = %d, want 2", len(list))
+	}
+	if list[0].Name != "macbook" || list[1].Name != "nuc" {
+		t.Fatalf("ListHosts order = %q, %q", list[0].Name, list[1].Name)
+	}
+}
+
+func TestListHostsEmpty(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	list, err := st.ListHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list == nil || len(list) != 0 {
+		t.Fatalf("ListHosts empty = %#v", list)
 	}
 }
 

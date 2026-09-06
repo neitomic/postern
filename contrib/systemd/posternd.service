@@ -1,0 +1,22 @@
+[Unit]
+Description=Postern registry
+After=network.target
+
+[Service]
+User=postern
+Group=postern
+ExecStart=/usr/bin/posternd serve --config /etc/postern/posternd.toml
+Restart=on-failure
+RestartSec=2
+UMask=0007
+StateDirectory=postern
+RuntimeDirectory=postern
+RuntimeDirectoryMode=0750
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/postern /run/postern
+
+[Install]
+WantedBy=multi-user.target

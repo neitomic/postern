@@ -2,7 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 )
+
+var ErrHostNotFound = errors.New("no_such_host")
 
 type Host struct {
 	ID             int64
@@ -50,14 +53,39 @@ func (s *Store) HostByName(name string) (*Host, error) {
 		 FROM hosts WHERE name = ?`,
 		name,
 	)
-	return scanHost(row)
+	h, err := scanHost(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrHostNotFound
+	}
+	return h, err
 }
 
-func scanHost(row *sql.Row) (*Host, error) {
+func (s *Store) ListHosts() ([]*Host, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, login_user, port, key_fingerprint, pubkey, tags_json, last_seen, created_at, updated_at, disabled
+		 FROM hosts ORDER BY name ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]*Host, 0)
+	for rows.Next() {
+		h, err := scanHost(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+func scanHost(sc tokenScanner) (*Host, error) {
 	var h Host
 	var lastSeen sql.NullInt64
 	var disabled int
-	if err := row.Scan(
+	if err := sc.Scan(
 		&h.ID, &h.Name, &h.LoginUser, &h.Port, &h.KeyFingerprint, &h.Pubkey, &h.TagsJSON,
 		&lastSeen, &h.CreatedAt, &h.UpdatedAt, &disabled,
 	); err != nil {

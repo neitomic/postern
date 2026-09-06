@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/neitomic/postern/internal/config"
 	"github.com/neitomic/postern/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -28,6 +29,8 @@ func newRoot() *cobra.Command {
 		},
 	}
 	cmd.Version = version.Version
+	cmd.PersistentFlags().String("config", config.DefaultPosterndPath, "path to posternd.toml")
+	cmd.PersistentFlags().String("socket", "", "unix socket path (overrides config and POSTERND_SOCKET)")
 	cmd.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
@@ -36,5 +39,7 @@ func newRoot() *cobra.Command {
 			fmt.Println(version.Version)
 		},
 	})
+	cmd.AddCommand(newServeCmd())
+	cmd.AddCommand(newTokenCmd())
 	return cmd
 }
