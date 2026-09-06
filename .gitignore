@@ -1,0 +1,30 @@
+# Binaries
+/postern
+/posternd
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go build / test
+*.out
+coverage.html
+coverage.out
+vendor/
+
+# SQLite (local posternd data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
