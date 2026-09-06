@@ -20,21 +20,24 @@ func newJoinCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "join",
 		Short: "Write an enroll request or bind an enroll response",
-		Long: `Split enroll is the default path.
+		Long: `Enroll this machine with the VPS. Two ways:
 
-  postern join --token TOKEN
-      Write enroll-request.json and print it. Does not SSH as admin.
+Split enroll (default) — this machine never gets the VPS admin SSH key.
+Two computers: THIS machine (behind NAT) and a LAPTOP that can already
+ssh USER@vps.
 
-  Copy that file to the operator laptop, run postern enroll-machine,
-  copy the response back, then:
+  THIS:   postern join --token TOKEN
+          writes ~/.local/share/postern/enroll-request.json
+  LAPTOP: postern enroll-machine enroll-request.json > enroll-response.json
+          (that ssh's to the VPS as admin and spends the token)
+  THIS:   postern join --apply-response enroll-response.json
 
-  postern join --apply-response FILE
-      Bind ok/name/fingerprint/port and write state.json + ssh_config.
+One-box shortcut — only if THIS machine can already ssh USER@vps:
 
   postern join --submit --token TOKEN
-      Optional convenience: enroll over admin SSH from this machine.
-      This copies admin SSH authority onto this box and is not the
-      headless path. Never uses ssh-agent forwarding (-A).`,
+
+That copies admin SSH authority onto this box. Not the headless path.
+Never ssh-agent forwarding (-A).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch {
@@ -74,16 +77,24 @@ func runJoinToken(cmd *cobra.Command, token string, force bool) error {
 	}
 	fmt.Fprint(cmd.OutOrStdout(), string(raw))
 	fmt.Fprintf(cmd.ErrOrStderr(), `
-Wrote %s. This machine does not SSH as admin.
+Wrote %s
 
-Next:
-  1. Copy the JSON above to the operator laptop
-  2. On the laptop: postern enroll-machine enroll-request.json
-  3. Copy the response JSON back here
-  4. postern join --apply-response enroll-response.json
+What this is: a request (name + pubkey + token). The VPS has to approve it.
+This machine does not SSH to the VPS as admin on purpose.
 
-Optional: postern join --submit --token … copies admin SSH authority onto this machine and is not the headless path.
-`, p.EnrollRequest())
+Two computers — copy one file each way:
+
+  LAPTOP (already: ssh USER@your-vps)
+    scp this-machine:%s enroll-request.json
+    postern enroll-machine enroll-request.json > enroll-response.json
+    scp enroll-response.json this-machine:
+
+  THIS MACHINE
+    postern join --apply-response enroll-response.json
+
+If this machine can already ssh to the VPS as admin, skip the copy:
+    postern join --submit --token TOKEN
+`, p.EnrollRequest(), p.EnrollRequest())
 	return nil
 }
 

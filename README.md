@@ -71,12 +71,23 @@ postern config show
 
 `postern init --server … --name … --accept-host-key` still works as a one-shot.
 
-## Canary: split enroll (not `--submit`)
+## Enroll a machine
 
-The NAT machine never needs the admin SSH key. Token + two JSON files is the
-path that works on a headless nuc/pi.
+The VPS must record this machine’s tunnel key. That takes **admin SSH to the
+VPS**. Headless boxes should not have that key, so enroll is two files between
+**this machine** and a **laptop that can already `ssh USER@vps`**.
 
-**1. Operator laptop** (already `debian@vps`):
+If **this machine** can already `ssh USER@vps`, skip the copy:
+
+```bash
+postern join --submit --token psn_join_…
+```
+
+That copies admin SSH onto this box. Do not use it on a nuc/pi. Never `-A`.
+
+### Split enroll (headless)
+
+**Laptop** (already `ssh debian@vps`):
 
 ```bash
 postern config set server debian@vps.example.net
@@ -84,45 +95,31 @@ postern config accept-host-key
 ssh -T -o BatchMode=yes debian@vps.example.net /usr/bin/posternd token issue --ttl 15m --name macbook
 ```
 
-Paste the `psn_join_…` token onto the machine (chat / USB / typed). Bound
-`--name` is recommended.
+Paste `psn_join_…` onto the machine (chat / USB / typed). `--name` is recommended.
 
-**2. Canary machine** (no admin SSH):
+**This machine:**
 
 ```bash
 postern join --token psn_join_…
-# writes ~/.local/share/postern/enroll-request.json and prints it
+# prints JSON and writes ~/.local/share/postern/enroll-request.json
 ```
 
-Copy that JSON to the laptop.
-
-**3. Laptop** submits enroll over **its** admin SSH:
+**Laptop** — only the laptop talks to the VPS:
 
 ```bash
+scp machine:.local/share/postern/enroll-request.json .
 postern enroll-machine enroll-request.json > enroll-response.json
+scp enroll-response.json machine:
 ```
 
-Copy the response back to the machine.
-
-**4. Machine** binds the response. The already-enabled agent picks up
-`state.json` within a few seconds:
+**This machine** again:
 
 ```bash
 postern join --apply-response enroll-response.json
 ```
 
 `--apply-response` refuses to write `state.json` unless `ok`, name, fingerprint,
-and port range match.
-
-Optional convenience, **not** the headless path:
-
-```bash
-postern join --submit --token psn_join_…
-```
-
-That SSHes to the VPS **as the admin user from the machine**, which copies admin
-authority onto that box. Do not treat it as the only enroll path. Never
-ssh-agent forwarding (`-A`).
+and port range match. The agent then picks up the port within a few seconds.
 
 Verify: `ss -ltn src 127.0.0.1` on the VPS for the allocated port, `postern ls`
 (TUNNEL + AGENT columns), `postern ssh macbook`.
