@@ -111,6 +111,29 @@ func TestInstallRefusesWithoutPort(t *testing.T) {
 	}
 }
 
+func TestWriteAgentUnitWithoutEnroll(t *testing.T) {
+	t.Parallel()
+	p, _ := setupMachine(t)
+	_ = os.Remove(p.StateFile())
+	home := t.TempDir()
+	exe := "/usr/bin/postern"
+	if err := WriteAgentUnit(p, exe, home); err != nil {
+		t.Fatal(err)
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		if _, err := os.Stat(LaunchAgentPlistPath(home)); err != nil {
+			t.Fatal(err)
+		}
+	case "linux":
+		if _, err := os.Stat(SystemdUserUnitPath(home)); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatalf("unsupported GOOS %s", runtime.GOOS)
+	}
+}
+
 func TestInstallWritesUnit(t *testing.T) {
 	t.Parallel()
 	p, _, _ := setupEnrolled(t)

@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/neitomic/postern/internal/config"
 	"github.com/neitomic/postern/internal/names"
 )
+
+var ErrNotEnrolled = errors.New("not enrolled")
 
 type BindError struct {
 	msg string
@@ -231,14 +234,14 @@ func loadEnrolled(p Paths) (config.Client, State, error) {
 	cfg, err := config.LoadClient(p.ConfigFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return config.Client{}, State{}, fmt.Errorf("client config not found (run postern init): %s", p.ConfigFile())
+			return config.Client{}, State{}, fmt.Errorf("%w: client config not found (run postern config): %s", ErrNotEnrolled, p.ConfigFile())
 		}
 		return config.Client{}, State{}, err
 	}
 	st, err := LoadState(p.StateFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, State{}, fmt.Errorf("not enrolled (%s missing); run postern join --apply-response first", p.StateFile())
+			return cfg, State{}, fmt.Errorf("%w (%s missing); run postern join --apply-response first", ErrNotEnrolled, p.StateFile())
 		}
 		return cfg, State{}, err
 	}

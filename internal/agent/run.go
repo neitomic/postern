@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -23,6 +24,7 @@ const (
 	heartbeatJitter     = 2 * time.Second
 	heartbeatWait       = 20 * time.Second
 	defaultShutdownWait = 5 * time.Second
+	defaultEnrollWait   = 15 * time.Second
 )
 
 // RunOptions configures agent run. Zero value is the production path.
@@ -33,6 +35,9 @@ type RunOptions struct {
 	Jitter       time.Duration
 	ShutdownWait time.Duration
 	LookPath     func(string) (string, error)
+	// SkipEnrollWait makes missing config/state a hard error (tests).
+	SkipEnrollWait bool
+	EnrollWait     time.Duration
 
 	writeSSHConfigs func(Paths, State, config.Client) error
 }
@@ -41,8 +46,11 @@ func Run(ctx context.Context, p Paths, opts RunOptions) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg, st, err := loadEnrolled(p)
+	cfg, st, err := waitEnrolled(ctx, p, opts)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil
+		}
 		return err
 	}
 	write := opts.writeSSHConfigs
@@ -102,6 +110,30 @@ func Run(ctx context.Context, p Paths, opts RunOptions) error {
 		hbCancel()
 		stopProcessGroup(cmd, waitCh, shutdownWait(opts))
 		return nil
+	}
+}
+
+func waitEnrolled(ctx context.Context, p Paths, opts RunOptions) (config.Client, State, error) {
+	wait := opts.EnrollWait
+	if wait <= 0 {
+		wait = defaultEnrollWait
+	}
+	for {
+		cfg, st, err := loadEnrolled(p)
+		if err == nil {
+			return cfg, st, nil
+		}
+		if opts.SkipEnrollWait || !errors.Is(err, ErrNotEnrolled) {
+			return config.Client{}, State{}, err
+		}
+		slog.Info("agent_waiting", "err", err)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return config.Client{}, State{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 

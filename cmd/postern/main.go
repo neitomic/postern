@@ -52,6 +52,9 @@ func newRoot() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newInstallCmd())
+	cmd.AddCommand(newUninstallCmd())
 	cmd.AddCommand(newJoinCmd())
 	cmd.AddCommand(newEnrollMachineCmd())
 	cmd.AddCommand(newAgentCmd())

@@ -40,15 +40,22 @@ func Install(p Paths, exe, home string) error {
 	if err != nil {
 		return err
 	}
+	if err := WriteSSHConfigs(p, st, cfg); err != nil {
+		return err
+	}
+	return WriteAgentUnit(p, exe, home)
+}
+
+// WriteAgentUnit writes the LaunchAgent plist or systemd --user unit. It does
+// not require enrollment; agent run waits until state.json exists.
+func WriteAgentUnit(p Paths, exe, home string) error {
+	var err error
 	exe, err = absExecutable(exe)
 	if err != nil {
 		return err
 	}
 	home, err = resolveHome(home)
 	if err != nil {
-		return err
-	}
-	if err := WriteSSHConfigs(p, st, cfg); err != nil {
 		return err
 	}
 	switch runtime.GOOS {

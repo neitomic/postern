@@ -53,6 +53,25 @@ func TestRunAbortsOnPortMismatch(t *testing.T) {
 	_ = st
 }
 
+func TestRunWaitsForEnrollUntilCancel(t *testing.T) {
+	t.Parallel()
+	p, _ := setupMachine(t)
+	started := filepath.Join(t.TempDir(), "started")
+	fake := writeScript(t, t.TempDir(), "autossh", "#!/bin/sh\necho started >\""+started+"\"\nsleep 5\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := Run(ctx, p, RunOptions{
+		Autossh:    fake,
+		EnrollWait: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("wait-until-cancel should be nil, got %v", err)
+	}
+	if _, err := os.Stat(started); !os.IsNotExist(err) {
+		t.Fatal("autossh started while not enrolled")
+	}
+}
+
 func TestRunAbortsIfPortMissing(t *testing.T) {
 	t.Parallel()
 	p, _ := setupMachine(t)
@@ -60,7 +79,8 @@ func TestRunAbortsIfPortMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := Run(context.Background(), p, RunOptions{
-		LookPath: func(string) (string, error) { return "/bin/false", nil },
+		LookPath:       func(string) (string, error) { return "/bin/false", nil },
+		SkipEnrollWait: true,
 	})
 	if err == nil {
 		t.Fatal("expected error")

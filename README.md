@@ -18,46 +18,7 @@ Two binaries, one module:
 
 Full spec: [DESIGN.md](DESIGN.md).
 
-## Build
-
-Go 1.25+, `CGO_ENABLED=0` (pure-Go SQLite).
-
-```bash
-make test
-make build          # native dist/posternd dist/postern
-make dist           # linux/amd64, darwin/arm64, darwin/amd64 into dist/<goos>-<goarch>/
-```
-
-## Install
-
-### VPS (Debian 11+, OpenSSH 8.0+)
-
-Copy the linux/amd64 `posternd` binary plus `scripts/` and `contrib/` onto the
-VPS (or clone the repo there). Do **not** install the `postern` client on the
-VPS.
-
-```bash
-# from this repo on the VPS, as root
-POSTERND_BIN=dist/linux-amd64/posternd ./scripts/vps-bootstrap.sh debian
-```
-
-`debian` is the admin SSH user (or `$SUDO_USER` / the first non-root argument).
-The script:
-
-- `groupadd --system postern` and `useradd --system` with shell `/usr/bin/posternd-shell`
-- `usermod -aG postern` that admin user
-- `/var/lib/postern` and `/etc/postern` `0750`; `authorized_keys` and `postern.db` `0640`
-- installs `contrib/sshd/50-postern.conf` (ends with `Match all`) and **runs `sshd -t`**
-  — **hard-fail, no `systemctl reload ssh`** if the config is invalid
-- installs `contrib/systemd/posternd.service`, `systemctl enable --now posternd`
-- installs `/usr/bin/posternd` and a `posternd-shell` symlink
-- does **not** raise `MaxStartups`
-
-Then open a **new** SSH session as the admin user so `SO_PEERGROUPS` sees group
-`postern`. Edit `/etc/postern/posternd.toml` `vps_hostname` if the guessed DNS
-name is wrong and `systemctl restart posternd`.
-
-### Agent (NAT machine)
+## Install the agent (laptop / NAT machine)
 
 Need `autossh` and OpenSSH on the path:
 
@@ -69,13 +30,26 @@ sudo apt install autossh openssh-client
 brew install autossh
 ```
 
-Install `dist/<goos>-<goarch>/postern` onto `$PATH` (for example
-`~/.local/bin/postern`). Split-enroll is the canary — see below — then:
+From a [GitHub release](https://github.com/neitomic/postern/releases) (linux/darwin, amd64/arm64):
 
 ```bash
-postern agent install
-postern agent enable
+curl -fsSL https://github.com/neitomic/postern/releases/latest/download/install.sh | sh
 ```
+
+That downloads the matching `postern` binary, copies it to `~/.local/bin/postern`,
+writes a LaunchAgent (macOS) or systemd --user unit (Linux), and **enables
+autostart**. The agent waits until this machine is enrolled.
+
+Or download the tarball yourself and run:
+
+```bash
+tar -xzf postern_*.tar.gz
+./postern install
+```
+
+`postern install` always installs to `~/.local/bin` so the service does not
+point at a `Downloads/` copy. `--bin-dir DIR` and `--no-enable` / `--no-service`
+are available.
 
 Linux user units die on logout unless lingering is on:
 
@@ -83,21 +57,19 @@ Linux user units die on logout unless lingering is on:
 loginctl enable-linger "$USER"
 ```
 
-`postern agent enable` warns if linger is `no`.
+`postern install` / `postern agent enable` warn if linger is `no`.
 
-### Client (operator laptop)
-
-Same `postern` binary. After at least one host is enrolled:
+Then configure and enroll:
 
 ```bash
-postern init --server debian@vps.example.net --accept-host-key
-postern ls
-postern ssh-config --write    # backup ~/.ssh/config first; replaces the managed block only
-postern ssh macbook
+postern config set server debian@vps.example.net
+postern config set name macbook
+postern config set login-user neo          # optional; defaults to this login
+postern config accept-host-key            # pins the VPS host key
+postern config show
 ```
 
-`postern ssh` execs `/usr/bin/ssh -F` a generated config (jump + host stanzas).
-It does not pass inline `ProxyJump=user@host`.
+`postern init --server … --name … --accept-host-key` still works as a one-shot.
 
 ## Canary: split enroll (not `--submit`)
 
@@ -107,7 +79,8 @@ path that works on a headless nuc/pi.
 **1. Operator laptop** (already `debian@vps`):
 
 ```bash
-postern init --server debian@vps.example.net --accept-host-key
+postern config set server debian@vps.example.net
+postern config accept-host-key
 ssh -T -o BatchMode=yes debian@vps.example.net /usr/bin/posternd token issue --ttl 15m --name macbook
 ```
 
@@ -117,7 +90,6 @@ Paste the `psn_join_…` token onto the machine (chat / USB / typed). Bound
 **2. Canary machine** (no admin SSH):
 
 ```bash
-postern init --server debian@vps.example.net --name macbook --login-user neo --accept-host-key
 postern join --token psn_join_…
 # writes ~/.local/share/postern/enroll-request.json and prints it
 ```
@@ -132,11 +104,11 @@ postern enroll-machine enroll-request.json > enroll-response.json
 
 Copy the response back to the machine.
 
-**4. Machine** binds the response, then starts the tunnel:
+**4. Machine** binds the response. The already-enabled agent picks up
+`state.json` within a few seconds:
 
 ```bash
 postern join --apply-response enroll-response.json
-postern agent install && postern agent enable
 ```
 
 `--apply-response` refuses to write `state.json` unless `ok`, name, fingerprint,
@@ -155,11 +127,71 @@ ssh-agent forwarding (`-A`).
 Verify: `ss -ltn src 127.0.0.1` on the VPS for the allocated port, `postern ls`
 (TUNNEL + AGENT columns), `postern ssh macbook`.
 
+## Install the VPS (`posternd`)
+
+Debian 11+, OpenSSH 8.0+. Use the **linux** release tarball (amd64 or arm64).
+Do **not** install the `postern` client as the VPS tunnel.
+
+```bash
+tar -xzf postern_*_linux_*.tar.gz
+# as root, from the extracted directory
+POSTERND_BIN=./posternd ./scripts/vps-bootstrap.sh debian
+```
+
+`debian` is the admin SSH user (or `$SUDO_USER` / the first non-root argument).
+The script:
+
+- `groupadd --system postern` and `useradd --system` with shell `/usr/bin/posternd-shell`
+- `usermod -aG postern` that admin user
+- `/var/lib/postern` and `/etc/postern` `0750`; `authorized_keys` and `postern.db` `0640`
+- installs `contrib/sshd/50-postern.conf` (ends with `Match all`) and **runs `sshd -t`**
+  — **hard-fail, no `systemctl reload ssh`** if the config is invalid
+- installs `contrib/systemd/posternd.service`, `systemctl enable --now posternd`
+- installs `/usr/bin/posternd` and a `posternd-shell` symlink
+- does **not** raise `MaxStartups`
+
+Then open a **new** SSH session as the admin user so `SO_PEERGROUPS` sees group
+`postern`. Edit `/etc/postern/posternd.toml` `vps_hostname` if the guessed DNS
+name is wrong and `systemctl restart posternd`.
+
+## Client (operator laptop)
+
+Same `postern` binary. After at least one host is enrolled:
+
+```bash
+postern ls
+postern ssh-config --write    # backup ~/.ssh/config first; replaces the managed block only
+postern ssh macbook
+```
+
+`postern ssh` execs `/usr/bin/ssh -F` a generated config (jump + host stanzas).
+It does not pass inline `ProxyJump=user@host`.
+
+## Build
+
+Go 1.25+, `CGO_ENABLED=0` (pure-Go SQLite).
+
+```bash
+make test
+make build          # native dist/posternd dist/postern
+make dist           # linux/amd64, linux/arm64, darwin/arm64, darwin/amd64
+make pack VERSION=0.1.0
+```
+
+GitHub Actions publishes those tarballs on `v*` tags.
+
 ## CLI cheat sheet
 
 `postern` (machine / laptop):
 
 ```
+postern install [--bin-dir DIR] [--no-enable] [--no-service]
+postern uninstall
+postern config
+postern config show
+postern config get KEY
+postern config set KEY VALUE [--accept-host-key]
+postern config accept-host-key
 postern init [--server USER@HOST] [--name NAME] [--login-user USER] [--local-ssh-port 22] [--accept-host-key]
 postern join --token TOKEN [--force]          # write enroll-request.json; do not SSH as admin
 postern join --apply-response FILE            # bind name/fp/port; write state.json + ssh_config

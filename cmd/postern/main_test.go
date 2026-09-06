@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -78,6 +79,141 @@ func TestAgentSetNameRequiresArg(t *testing.T) {
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error")
 	}
+}
+
+func TestRootHelpListsInstallAndConfig(t *testing.T) {
+	cmd := newRoot()
+	cmd.SetArgs([]string{"--help"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"install", "uninstall", "config", "init"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("root help missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestConfigSetGetShow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_DATA_HOME", home+"/.local/share")
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := newRoot()
+		cmd.SetArgs(args)
+		var buf bytes.Buffer
+		cmd.SetOut(&buf)
+		cmd.SetErr(&buf)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v\n%s", err, buf.String())
+		}
+		return buf.String()
+	}
+	out := run("config", "set", "server", "debian@vps.example.net")
+	if !strings.Contains(out, "debian@vps.example.net") {
+		t.Fatalf("set output = %q", out)
+	}
+	if got := strings.TrimSpace(run("config", "get", "server")); got != "debian@vps.example.net" {
+		t.Fatalf("get server = %q", got)
+	}
+	run("config", "set", "name", "macbook")
+	run("config", "set", "login-user", "neo")
+	run("config", "set", "local-ssh-port", "2222")
+	if got := strings.TrimSpace(run("config", "get", "name")); got != "macbook" {
+		t.Fatalf("get name = %q", got)
+	}
+	if got := strings.TrimSpace(run("config", "get", "local-ssh-port")); got != "2222" {
+		t.Fatalf("get port = %q", got)
+	}
+	show := run("config", "show")
+	if !strings.Contains(show, "config.toml") || !strings.Contains(show, "macbook") {
+		t.Fatalf("show = %s", show)
+	}
+	p, err := agent.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p.IdentityFile()); err != nil {
+		t.Fatalf("config set should create tunnel key: %v", err)
+	}
+}
+
+func TestConfigSetRejectsUnknownKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmd := newRoot()
+	cmd.SetArgs([]string{"config", "set", "token", "nope"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestInstallCopiesBinaryNoService(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_DATA_HOME", home+"/.local/share")
+	binDir := home + "/opt"
+	cmd := newRoot()
+	cmd.SetArgs([]string{"install", "--bin-dir", binDir, "--no-service"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("%v\n%s", err, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "installed") || !strings.Contains(out, binDir) {
+		t.Fatalf("output = %s", out)
+	}
+	if !strings.Contains(out, "config set server") {
+		t.Fatalf("missing next steps:\n%s", out)
+	}
+	st, err := os.Stat(binDir + "/postern")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm != 0o755 {
+		t.Fatalf("mode = %o", perm)
+	}
+}
+
+func TestInstallWritesUnitNoEnable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home+"/.config")
+	t.Setenv("XDG_DATA_HOME", home+"/.local/share")
+	cmd := newRoot()
+	cmd.SetArgs([]string{"install", "--no-enable"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("%v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "unit written") {
+		t.Fatalf("output = %s", buf.String())
+	}
+	switch {
+	case fileExists(home + "/Library/LaunchAgents/com.postern.agent.plist"):
+	case fileExists(home + "/.config/systemd/user/postern-agent.service"):
+	default:
+		t.Fatalf("no unit file under %s", home)
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func TestInitMergesExistingConfig(t *testing.T) {

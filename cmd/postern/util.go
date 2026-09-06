@@ -19,7 +19,7 @@ func loadConfigured() (config.Client, agent.Paths, error) {
 	cfg, err := config.LoadClient(p.ConfigFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return config.Client{}, p, fmt.Errorf("client config not found (run postern init): %s", p.ConfigFile())
+			return config.Client{}, p, fmt.Errorf("client config not found (run postern config set server …): %s", p.ConfigFile())
 		}
 		return config.Client{}, p, err
 	}
