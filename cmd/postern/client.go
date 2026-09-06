@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -134,8 +134,41 @@ func runSSHWrapper(stderr io.Writer, args []string) error {
 }
 
 func sshWrapperArgv(file, name string, extra []string) []string {
-	argv := []string{sshBin, "-F", file, name}
-	return append(argv, extra...)
+	opts, cmd := splitSSHExtras(extra)
+	argv := []string{sshBin, "-F", file}
+	argv = append(argv, opts...)
+	argv = append(argv, name)
+	return append(argv, cmd...)
+}
+
+// splitSSHExtras puts ssh(1) client flags before the destination so
+// `postern ssh macbook -- -v` is verbose, not a remote command named -v.
+func splitSSHExtras(extra []string) (opts, cmd []string) {
+	takesArg := map[byte]bool{
+		'B': true, 'b': true, 'c': true, 'D': true, 'E': true, 'e': true,
+		'F': true, 'I': true, 'i': true, 'J': true, 'L': true, 'l': true,
+		'm': true, 'O': true, 'o': true, 'P': true, 'p': true, 'R': true,
+		'S': true, 'W': true, 'w': true,
+	}
+	i := 0
+	for i < len(extra) {
+		a := extra[i]
+		if a == "--" {
+			return opts, extra[i+1:]
+		}
+		if a == "" || a[0] != '-' || a == "-" {
+			return opts, extra[i:]
+		}
+		opts = append(opts, a)
+		if len(a) == 2 && takesArg[a[1]] {
+			if i+1 < len(extra) {
+				i++
+				opts = append(opts, extra[i])
+			}
+		}
+		i++
+	}
+	return opts, nil
 }
 
 func loadClientAndHosts() (config.Client, []sshconfig.Host, error) {
@@ -173,7 +206,7 @@ func renderSSHConfig(cfg config.Client, hosts []sshconfig.Host) (string, error) 
 		Port:         port,
 		IdentityFile: cfg.IdentityFile,
 	}
-	return sshconfig.Render(jump, hosts, version.Version, now().UTC()), nil
+	return sshconfig.Render(jump, hosts, version.Version, now().UTC())
 }
 
 func writeClientSSHConfig(body string) (string, error) {
@@ -181,10 +214,7 @@ func writeClientSSHConfig(body string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := sshconfig.WriteFile(path, body); err != nil {
+	if err := sshconfig.WritePrivate(path, body); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -222,9 +252,24 @@ func controlSSHArgs(cfg config.Client, knownHosts string, remote ...string) []st
 	if cfg.IdentityFile != "" {
 		args = append(args, "-o", "IdentityFile="+cfg.IdentityFile, "-o", "IdentitiesOnly=yes")
 	}
-	args = append(args, cfg.Server)
+	args = append(args, controlSSHDest(cfg)...)
 	args = append(args, remote...)
 	return args
+}
+
+func controlSSHDest(cfg config.Client) []string {
+	user, host, port := config.ParseServer(cfg.Server)
+	if host == "" {
+		host = cfg.Server
+	}
+	dest := host
+	if user != "" {
+		dest = user + "@" + host
+	}
+	if port > 0 && port != 22 {
+		return []string{"-p", strconv.Itoa(port), dest}
+	}
+	return []string{dest}
 }
 
 func runSSH(args []string) ([]byte, error) {

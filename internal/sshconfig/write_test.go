@@ -9,7 +9,7 @@ import (
 
 func TestReplaceManagedAppendsWhenAbsent(t *testing.T) {
 	t.Parallel()
-	block := Render(goldenJump(), goldenHosts(), "0.1.0", goldenAt)
+	block := mustRender(t, goldenJump(), goldenHosts())
 	got, err := ReplaceManaged("Host github.com\n    User git\n", block)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestReplaceManagedAppendsWhenAbsent(t *testing.T) {
 func TestReplaceManagedReplacesMarkersOnly(t *testing.T) {
 	t.Parallel()
 	existing := "Host keep-before\n\n# BEGIN POSTERN MANAGED BLOCK\nold junk\n# END POSTERN MANAGED BLOCK\n\nHost keep-after\n    HostName x\n"
-	block := Render(goldenJump(), goldenHosts(), "0.1.0", goldenAt)
+	block := mustRender(t, goldenJump(), goldenHosts())
 	got, err := ReplaceManaged(existing, block)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestReplaceManagedUnbalanced(t *testing.T) {
 func TestWriteFileCreates0600AndReplacesMarkers(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "config")
-	block := Render(goldenJump(), goldenHosts(), "0.1.0", goldenAt)
+	block := mustRender(t, goldenJump(), goldenHosts())
 	if err := WriteFile(path, block); err != nil {
 		t.Fatal(err)
 	}
@@ -110,5 +110,38 @@ func TestWriteFileRefusesNonRegular(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteFile(dir, "x"); err == nil {
 		t.Fatal("expected error for directory")
+	}
+}
+
+func TestWritePrivateOverwrites0600(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "client.ssh_config")
+	if err := os.WriteFile(path, []byte("Host *\n    StrictHostKeyChecking no\nHost leftover\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	block := mustRender(t, goldenJump(), goldenHosts())
+	if err := WritePrivate(path, block); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(got)
+	if strings.Contains(body, "Host leftover") || strings.Contains(body, "StrictHostKeyChecking no") {
+		t.Fatalf("stale prefix kept:\n%s", body)
+	}
+	if !strings.HasPrefix(body, BeginMarker+"\n") {
+		t.Fatalf("not a full replace:\n%s", body)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("mode = %o, want 0600", perm)
 	}
 }

@@ -36,6 +36,23 @@ func ReplaceManaged(existing, block string) (string, error) {
 	return out, nil
 }
 
+// WritePrivate overwrites path with body at 0600. Used for postern ssh -F files
+// so leftover Host stanzas cannot first-win over the regenerated jump identity.
+func WritePrivate(path, body string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s: not a regular file", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return writeAtomic(path, []byte(body), 0o600)
+}
+
 func WriteFile(path, block string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

@@ -46,13 +46,22 @@ func assertGolden(t *testing.T, got, name string) {
 	}
 }
 
+func mustRender(t *testing.T, jump Jump, hosts []Host) string {
+	t.Helper()
+	got, err := Render(jump, hosts, "0.1.0", goldenAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
 func TestRenderGoldens(t *testing.T) {
 	t.Parallel()
-	assertGolden(t, Render(goldenJump(), goldenHosts(), "0.1.0", goldenAt), "no-identity.golden")
+	assertGolden(t, mustRender(t, goldenJump(), goldenHosts()), "no-identity.golden")
 
 	j := goldenJump()
 	j.IdentityFile = "/Users/neo/.ssh/id_ed25519"
-	assertGolden(t, Render(j, goldenHosts(), "0.1.0", goldenAt), "with-identity.golden")
+	assertGolden(t, mustRender(t, j, goldenHosts()), "with-identity.golden")
 }
 
 func TestRenderOmitsDisabledIncludesOffline(t *testing.T) {
@@ -64,7 +73,7 @@ func TestRenderOmitsDisabledIncludesOffline(t *testing.T) {
 		Name: "old", LoginUser: "neo", Port: 2203,
 		Disabled: true, Status: "disabled",
 	})
-	got := Render(goldenJump(), hosts, "0.1.0", goldenAt)
+	got := mustRender(t, goldenJump(), hosts)
 	if !strings.Contains(got, "Host pi\n") {
 		t.Fatal("offline host omitted")
 	}
@@ -81,10 +90,10 @@ func TestRenderOmitsDisabledIncludesOffline(t *testing.T) {
 
 func TestRenderSanitizesTags(t *testing.T) {
 	t.Parallel()
-	got := Render(goldenJump(), []Host{{
+	got := mustRender(t, goldenJump(), []Host{{
 		Name: "macbook", LoginUser: "neo", Port: 2223,
 		Tags: []string{"home#bad", "ok\nno"}, Status: "online",
-	}}, "0.1.0", goldenAt)
+	}})
 	if strings.Contains(got, "home#bad") || strings.Contains(got, "ok\nno") {
 		t.Fatalf("unsanitized tag in config:\n%s", got)
 	}
@@ -95,7 +104,7 @@ func TestRenderSanitizesTags(t *testing.T) {
 
 func TestRenderNoInlineProxyJump(t *testing.T) {
 	t.Parallel()
-	got := Render(goldenJump(), goldenHosts(), "0.1.0", goldenAt)
+	got := mustRender(t, goldenJump(), goldenHosts())
 	if strings.Contains(got, "ProxyJump debian@") || strings.Contains(got, "ProxyJump=user@") {
 		t.Fatalf("inline ProxyJump:\n%s", got)
 	}
@@ -116,7 +125,7 @@ func TestSSHGJumpIdentityFile(t *testing.T) {
 	}
 	j := goldenJump()
 	j.IdentityFile = id
-	body := Render(j, goldenHosts(), "0.1.0", goldenAt)
+	body := mustRender(t, j, goldenHosts())
 	cfg := filepath.Join(dir, "config")
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -148,6 +157,44 @@ func TestSSHGJumpIdentityFile(t *testing.T) {
 	}
 }
 
+func TestRenderRejectsPoisonJump(t *testing.T) {
+	t.Parallel()
+	j := goldenJump()
+	j.Host = "vps.example.net\nHost *\n    StrictHostKeyChecking no"
+	if _, err := Render(j, goldenHosts(), "0.1.0", goldenAt); err == nil {
+		t.Fatal("expected error for jump host newline")
+	}
+	j = goldenJump()
+	j.User = "debian#root"
+	if _, err := Render(j, goldenHosts(), "0.1.0", goldenAt); err == nil {
+		t.Fatal("expected error for jump user")
+	}
+	j = goldenJump()
+	j.IdentityFile = "/tmp/id with space"
+	if _, err := Render(j, goldenHosts(), "0.1.0", goldenAt); err == nil {
+		t.Fatal("expected error for identity_file space")
+	}
+}
+
+func TestRenderSkipsInvalidHost(t *testing.T) {
+	t.Parallel()
+	got := mustRender(t, goldenJump(), []Host{
+		{Name: "macbook", LoginUser: "neo", Port: 2223, Status: "online"},
+		{Name: "bad\nHost *", LoginUser: "neo", Port: 2201, Status: "online"},
+		{Name: "nuc", LoginUser: "neo\n", Port: 2202, Status: "online"},
+		{Name: "pi", LoginUser: "pi", Port: 2203, Status: "offline#x"},
+	})
+	if !strings.Contains(got, "Host macbook\n") {
+		t.Fatal("valid host omitted")
+	}
+	if strings.Contains(got, "Host *") || strings.Contains(got, "bad") {
+		t.Fatalf("poison name interpolated:\n%s", got)
+	}
+	if strings.Contains(got, "Host nuc") || strings.Contains(got, "Host pi") {
+		t.Fatalf("invalid user/status interpolated:\n%s", got)
+	}
+}
+
 func TestSSHGNoIdentityOmitsJumpIdentitiesOnly(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("ssh"); err != nil {
@@ -155,7 +202,7 @@ func TestSSHGNoIdentityOmitsJumpIdentitiesOnly(t *testing.T) {
 	}
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config")
-	if err := os.WriteFile(cfg, []byte(Render(goldenJump(), goldenHosts(), "0.1.0", goldenAt)), 0o600); err != nil {
+	if err := os.WriteFile(cfg, []byte(mustRender(t, goldenJump(), goldenHosts())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	jumpG := sshG(t, cfg, "postern-jump")

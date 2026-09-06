@@ -96,16 +96,36 @@ func TestControlSSHArgsNoIdentityOmitsIdentitiesOnly(t *testing.T) {
 	}
 }
 
+func TestControlSSHArgsServerPort(t *testing.T) {
+	t.Parallel()
+	cfg := config.Client{Server: "debian@vps.example.net:2200"}
+	args := controlSSHArgs(cfg, "/kh", "/usr/bin/posternd", "hosts", "list", "--json")
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "debian@vps.example.net:2200") {
+		t.Fatalf("port left in hostname: %v", args)
+	}
+	if !strings.Contains(joined, "-p 2200") {
+		t.Fatalf("missing -p: %v", args)
+	}
+	if args[len(args)-5] != "debian@vps.example.net" {
+		t.Fatalf("dest: %v", args)
+	}
+}
+
 func TestSSHWrapperArgv(t *testing.T) {
 	t.Parallel()
 	argv := sshWrapperArgv("/tmp/c", "macbook", []string{"-v"})
-	if strings.Join(argv, " ") != "/usr/bin/ssh -F /tmp/c macbook -v" {
+	if strings.Join(argv, " ") != "/usr/bin/ssh -F /tmp/c -v macbook" {
 		t.Fatalf("argv = %v", argv)
 	}
 	for _, a := range argv {
-		if strings.Contains(a, "ProxyJump=") || strings.HasPrefix(a, "-o") {
+		if strings.Contains(a, "ProxyJump=") {
 			t.Fatalf("inline jump opts: %v", argv)
 		}
+	}
+	argv = sshWrapperArgv("/tmp/c", "macbook", []string{"uname", "-a"})
+	if strings.Join(argv, " ") != "/usr/bin/ssh -F /tmp/c macbook uname -a" {
+		t.Fatalf("command argv = %v", argv)
 	}
 }
 
@@ -243,7 +263,7 @@ func TestSSHDegradedWarnsAndExecs(t *testing.T) {
 	if !strings.Contains(stderr.String(), "warning: host nuc is degraded") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
-	if len(argv) < 5 || argv[0] != sshBin || argv[1] != "-F" || argv[3] != "nuc" || argv[4] != "-v" {
+	if len(argv) < 5 || argv[0] != sshBin || argv[1] != "-F" || argv[3] != "-v" || argv[4] != "nuc" {
 		t.Fatalf("argv = %v", argv)
 	}
 	for _, a := range argv {

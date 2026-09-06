@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/neitomic/postern/internal/names"
 	"github.com/neitomic/postern/internal/version"
@@ -34,12 +35,15 @@ type Host struct {
 	Status       string   `json:"status"`
 }
 
-func Render(jump Jump, hosts []Host, ver string, at time.Time) string {
+func Render(jump Jump, hosts []Host, ver string, at time.Time) (string, error) {
 	if ver == "" {
 		ver = version.Version
 	}
 	if jump.Port == 0 {
 		jump.Port = 22
+	}
+	if err := jump.valid(); err != nil {
+		return "", err
 	}
 	at = at.UTC()
 
@@ -61,7 +65,7 @@ func Render(jump Jump, hosts []Host, ver string, at time.Time) string {
 		return strings.Compare(a.Name, b.Name)
 	})
 	for _, h := range cloned {
-		if h.Disabled {
+		if h.Disabled || !h.emitOK() {
 			continue
 		}
 		b.WriteByte('\n')
@@ -78,7 +82,49 @@ func Render(jump Jump, hosts []Host, ver string, at time.Time) string {
 	}
 	b.WriteByte('\n')
 	fmt.Fprintf(&b, "%s\n", EndMarker)
-	return b.String()
+	return b.String(), nil
+}
+
+func (j Jump) valid() error {
+	if err := names.ValidLoginUser(j.User); err != nil {
+		return fmt.Errorf("jump user: %w", err)
+	}
+	if !safeConfigValue(j.Host) {
+		return fmt.Errorf("invalid jump host %q", j.Host)
+	}
+	if j.IdentityFile != "" && !safeConfigValue(j.IdentityFile) {
+		return fmt.Errorf("invalid identity_file %q", j.IdentityFile)
+	}
+	if j.Port < 1 || j.Port > 65535 {
+		return fmt.Errorf("invalid jump port %d", j.Port)
+	}
+	return nil
+}
+
+func (h Host) emitOK() bool {
+	if names.Valid(h.Name) != nil {
+		return false
+	}
+	if names.ValidLoginUser(h.LoginUser) != nil {
+		return false
+	}
+	if h.Status != "" && !safeConfigValue(h.Status) {
+		return false
+	}
+	return true
+}
+
+// safeConfigValue rejects tokens that would break ssh_config quoting/line structure.
+func safeConfigValue(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r <= 32 || r == 127 || r == '#' || r == '"' || r == '\'' || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func joinTags(tags []string) string {
