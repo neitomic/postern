@@ -129,6 +129,23 @@ func UpdateHostEnrollTx(q querier, name, loginUser, tagsJSON, pubkey string, upd
 	return nil
 }
 
+func (s *Store) SetLastSeen(name string, ts int64) error {
+	res, err := s.db.Exec(`UPDATE hosts SET last_seen = ? WHERE name = ?`, ts, name)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.HostByName(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) SetHostDisabled(name string, disabled bool, updatedAt int64) error {
 	flag := 0
 	if disabled {

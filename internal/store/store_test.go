@@ -193,6 +193,43 @@ func TestUniqueConstraints(t *testing.T) {
 	}
 }
 
+func TestSetLastSeen(t *testing.T) {
+	t.Parallel()
+	st, _ := openTemp(t)
+	h := Host{
+		Name:           "macbook",
+		LoginUser:      "neo",
+		Port:           2223,
+		KeyFingerprint: "SHA256:aaaa",
+		Pubkey:         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIaaaa",
+		TagsJSON:       "[]",
+		CreatedAt:      1,
+		UpdatedAt:      1,
+	}
+	if err := st.InsertHost(&h); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetLastSeen("macbook", 99); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.HostByName("macbook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastSeen == nil || *got.LastSeen != 99 {
+		t.Fatalf("last_seen = %v", got.LastSeen)
+	}
+	if got.UpdatedAt != 1 {
+		t.Fatalf("updated_at changed: %d", got.UpdatedAt)
+	}
+	if err := st.SetLastSeen("macbook", 99); err != nil {
+		t.Fatalf("idempotent same timestamp: %v", err)
+	}
+	if err := st.SetLastSeen("missing", 1); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+}
+
 func TestListHostsEmpty(t *testing.T) {
 	t.Parallel()
 	st, _ := openTemp(t)

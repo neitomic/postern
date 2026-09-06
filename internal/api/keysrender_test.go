@@ -103,8 +103,15 @@ func TestSSHDFixture(t *testing.T) {
 	if !strings.Contains(body, "PermitOpen none") {
 		t.Fatal("missing PermitOpen none")
 	}
-	if !strings.Contains(body, "PermitUserEnvironment POSTERN_NAME,POSTERN_ROLE") {
+	pue := "PermitUserEnvironment POSTERN_NAME,POSTERN_ROLE"
+	if !strings.Contains(body, pue) {
 		t.Fatal("missing PermitUserEnvironment")
+	}
+	// OpenSSH rejects PermitUserEnvironment inside Match.
+	matchIdx := strings.Index(body, "Match User postern")
+	pueIdx := strings.Index(body, pue)
+	if matchIdx < 0 || pueIdx < 0 || pueIdx > matchIdx {
+		t.Fatal("PermitUserEnvironment must be global (before Match)")
 	}
 	if !strings.Contains(body, "ForceCommand /usr/bin/posternd-shell") {
 		t.Fatal("missing ForceCommand")

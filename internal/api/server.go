@@ -73,8 +73,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/gc", s.requireAdmin(s.handleGC))
 	mux.HandleFunc("GET /v1/ports", s.requireAdmin(s.handlePortsAudit))
 	mux.HandleFunc("POST /v1/authorized-keys/render", s.requireAdmin(s.handleRenderKeys))
-	mux.HandleFunc("POST /v1/agent/heartbeat", s.requireAgent(s.notImplemented))
-	mux.HandleFunc("GET /v1/agent/self", s.requireAgent(s.notImplemented))
+	mux.HandleFunc("POST /v1/agent/heartbeat", s.requireAgent(s.handleHeartbeat))
+	mux.HandleFunc("GET /v1/agent/self", s.requireAgent(s.handleAgentSelf))
 	mux.HandleFunc("/", s.notFound)
 	return s.auth(mux)
 }
@@ -146,10 +146,6 @@ func (s *Server) requireAgent(h http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": version.Version})
-}
-
-func (s *Server) notImplemented(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "not implemented")
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {

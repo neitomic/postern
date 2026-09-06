@@ -50,6 +50,11 @@ func testServer(t *testing.T) *Server {
 
 func do(t *testing.T, s *Server, peer *auth.Peer, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
+	return doH(t, s, peer, method, path, nil, body)
+}
+
+func doH(t *testing.T, s *Server, peer *auth.Peer, method, path string, headers map[string]string, body any) *httptest.ResponseRecorder {
+	t.Helper()
 	var rdr io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -62,6 +67,9 @@ func do(t *testing.T, s *Server, peer *auth.Peer, method, path string, body any)
 	req.Host = "localhost"
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	if peer != nil {
 		req = req.WithContext(auth.WithPeer(req.Context(), *peer))
@@ -232,23 +240,20 @@ func TestHostsListsInserted(t *testing.T) {
 	}
 }
 
-func TestAgentRoutesNotImplemented(t *testing.T) {
+func TestAgentRoutesAdminForbidden(t *testing.T) {
 	t.Parallel()
 	s := testServer(t)
-	rr := do(t, s, agentPeer(), http.MethodPost, "/v1/agent/heartbeat", map[string]int{"v": 1})
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("heartbeat: %d %s", rr.Code, rr.Body)
-	}
-	assertError(t, rr, "not_implemented")
-
-	rr = do(t, s, agentPeer(), http.MethodGet, "/v1/agent/self", nil)
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("self: %d %s", rr.Code, rr.Body)
-	}
-
-	rr = do(t, s, adminPeer(), http.MethodPost, "/v1/agent/heartbeat", map[string]int{"v": 1})
+	rr := doH(t, s, adminPeer(), http.MethodPost, "/v1/agent/heartbeat", map[string]string{headerPosternName: "macbook"}, map[string]int{"v": 1})
 	if rr.Code != http.StatusForbidden {
-		t.Fatalf("admin heartbeat: %d", rr.Code)
+		t.Fatalf("admin heartbeat: %d %s", rr.Code, rr.Body)
+	}
+	rr = doH(t, s, adminPeer(), http.MethodGet, "/v1/agent/self", map[string]string{headerPosternName: "macbook"}, nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("admin self: %d %s", rr.Code, rr.Body)
+	}
+	rr = doH(t, s, debianPeer(), http.MethodPost, "/v1/agent/heartbeat", map[string]string{headerPosternName: "macbook"}, map[string]int{"v": 1})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("debian heartbeat: %d", rr.Code)
 	}
 }
 

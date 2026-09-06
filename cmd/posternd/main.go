@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/neitomic/postern/internal/config"
 	"github.com/neitomic/postern/internal/version"
@@ -16,6 +17,9 @@ type exitCodeError struct {
 }
 
 func main() {
+	if filepath.Base(os.Args[0]) == "posternd-shell" {
+		os.Exit(shellMain(os.Args))
+	}
 	if err := newRoot().Execute(); err != nil {
 		var ec exitCodeError
 		if errors.As(err, &ec) {
