@@ -29,7 +29,7 @@ before the tunnel can come up.
 postern agent install still only writes the unit and requires enrollment.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInstall(cmd, binDir, noEnable, noService)
+			return runInstall(cmd, binDir, noEnable, noService, false)
 		},
 		SilenceUsage: true,
 	}
@@ -59,7 +59,7 @@ func newUninstallCmd() *cobra.Command {
 	}
 }
 
-func runInstall(cmd *cobra.Command, binDir string, noEnable, noService bool) error {
+func runInstall(cmd *cobra.Command, binDir string, noEnable, noService, quiet bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -83,8 +83,10 @@ func runInstall(cmd *cobra.Command, binDir string, noEnable, noService bool) err
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "installed %s\n", dst)
-	if hint := agent.PATHHint(binDir); hint != "" {
+	if !quiet {
+		fmt.Fprintf(cmd.OutOrStdout(), "installed %s\n", dst)
+	}
+	if hint := agent.PATHHint(binDir); hint != "" && !quiet {
 		fmt.Fprint(cmd.ErrOrStderr(), hint)
 	}
 	if hint := agent.AutosshHint(); hint != "" {
@@ -101,7 +103,9 @@ func runInstall(cmd *cobra.Command, binDir string, noEnable, noService bool) err
 	}
 
 	if noService {
-		fmt.Fprint(cmd.OutOrStdout(), agent.NextSteps(enrolled))
+		if !quiet {
+			fmt.Fprint(cmd.OutOrStdout(), agent.NextSteps(enrolled))
+		}
 		return nil
 	}
 
@@ -112,11 +116,15 @@ func runInstall(cmd *cobra.Command, binDir string, noEnable, noService bool) err
 		if err := agent.Enable(home, cmd.ErrOrStderr()); err != nil {
 			return err
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "agent service enabled (autostart on login)")
-	} else {
+		if !quiet {
+			fmt.Fprintln(cmd.OutOrStdout(), "agent service enabled (autostart on login)")
+		}
+	} else if !quiet {
 		fmt.Fprintln(cmd.OutOrStdout(), "agent unit written; run postern agent enable to start")
 	}
-	fmt.Fprint(cmd.OutOrStdout(), agent.NextSteps(enrolled))
+	if !quiet {
+		fmt.Fprint(cmd.OutOrStdout(), agent.NextSteps(enrolled))
+	}
 	return nil
 }
 

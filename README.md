@@ -16,113 +16,19 @@ Two binaries, one module:
 | `posternd` | VPS | registry, port allocator, join tokens, `authorized_keys`, heartbeat |
 | `postern` | each machine / laptop | join, agent (autossh), `ls` / `ssh-config` / `ssh` |
 
-Full spec: [DESIGN.md](DESIGN.md).
-
-## Install the agent (laptop / NAT machine)
-
-Need `autossh` and OpenSSH on the path:
+Full spec: [DESIGN.md](DESIGN.md). **Adding a machine:** [ONBOARDING.md](ONBOARDING.md).
 
 ```bash
-# Debian / Ubuntu
-sudo apt install autossh openssh-client
+# this machine can already ssh debian@vps:
+postern onboard --server debian@YOUR_VPS --name macbook --token psn_join_… --submit
 
-# macOS
-brew install autossh
+# headless (no admin SSH on this box):
+postern onboard --server debian@YOUR_VPS --name nuc --token psn_join_…
+# laptop: enroll-machine the printed file, scp the response back, then:
+postern onboard --apply-response enroll-response.json
 ```
 
-From a [GitHub release](https://github.com/neitomic/postern/releases) (linux/darwin, amd64/arm64):
-
-```bash
-curl -fsSL https://github.com/neitomic/postern/releases/latest/download/install.sh | sh
-```
-
-That downloads the matching `postern` binary, copies it to `~/.local/bin/postern`,
-writes a LaunchAgent (macOS) or systemd --user unit (Linux), and **enables
-autostart**. The agent waits until this machine is enrolled.
-
-Or download the tarball yourself and run:
-
-```bash
-tar -xzf postern_*.tar.gz
-./postern install
-```
-
-`postern install` always installs to `~/.local/bin` so the service does not
-point at a `Downloads/` copy. `--bin-dir DIR` and `--no-enable` / `--no-service`
-are available.
-
-Linux user units die on logout unless lingering is on:
-
-```bash
-loginctl enable-linger "$USER"
-```
-
-`postern install` / `postern agent enable` warn if linger is `no`.
-
-Then configure and enroll:
-
-```bash
-postern config set server debian@vps.example.net
-postern config set name macbook
-postern config set login-user neo          # optional; defaults to this login
-postern config accept-host-key            # pins the VPS host key
-postern config show
-```
-
-`postern init --server … --name … --accept-host-key` still works as a one-shot.
-
-## Enroll a machine
-
-The VPS must record this machine’s tunnel key. That takes **admin SSH to the
-VPS**. Headless boxes should not have that key, so enroll is two files between
-**this machine** and a **laptop that can already `ssh USER@vps`**.
-
-If **this machine** can already `ssh USER@vps`, skip the copy:
-
-```bash
-postern join --submit --token psn_join_…
-```
-
-That copies admin SSH onto this box. Do not use it on a nuc/pi. Never `-A`.
-
-### Split enroll (headless)
-
-**Laptop** (already `ssh debian@vps`):
-
-```bash
-postern config set server debian@vps.example.net
-postern config accept-host-key
-ssh -T -o BatchMode=yes debian@vps.example.net /usr/bin/posternd token issue --ttl 15m --name macbook
-```
-
-Paste `psn_join_…` onto the machine (chat / USB / typed). `--name` is recommended.
-
-**This machine:**
-
-```bash
-postern join --token psn_join_…
-# prints JSON and writes ~/.local/share/postern/enroll-request.json
-```
-
-**Laptop** — only the laptop talks to the VPS:
-
-```bash
-scp machine:.local/share/postern/enroll-request.json .
-postern enroll-machine enroll-request.json > enroll-response.json
-scp enroll-response.json machine:
-```
-
-**This machine** again:
-
-```bash
-postern join --apply-response enroll-response.json
-```
-
-`--apply-response` refuses to write `state.json` unless `ok`, name, fingerprint,
-and port range match. The agent then picks up the port within a few seconds.
-
-Verify: `ss -ltn src 127.0.0.1` on the VPS for the allocated port, `postern ls`
-(TUNNEL + AGENT columns), `postern ssh macbook`.
+Issue the token on the VPS: `posternd token issue --ttl 15m --name macbook`.
 
 ## Install the VPS (`posternd`)
 
@@ -208,6 +114,8 @@ GitHub Actions publishes those tarballs on `v*` tags.
 `postern` (machine / laptop):
 
 ```
+postern onboard --server USER@HOST --name NAME --token TOKEN [--submit]
+postern onboard --apply-response FILE
 postern install [--bin-dir DIR] [--no-enable] [--no-service]
 postern uninstall
 postern config

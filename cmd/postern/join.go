@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -37,7 +38,7 @@ One-box shortcut — only if THIS machine can already ssh USER@vps:
   postern join --submit --token TOKEN
 
 That copies admin SSH authority onto this box. Not the headless path.
-Never ssh-agent forwarding (-A).`,
+Never ssh-agent forwarding (-A). Prefer: postern onboard (see ONBOARDING.md).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch {
@@ -76,26 +77,48 @@ func runJoinToken(cmd *cobra.Command, token string, force bool) error {
 		return err
 	}
 	fmt.Fprint(cmd.OutOrStdout(), string(raw))
-	fmt.Fprintf(cmd.ErrOrStderr(), `
+	printSplitEnrollNext(cmd.ErrOrStderr(), p)
+	return nil
+}
+
+func thisMachineSCP() (user, host string) {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "this-machine"
+	}
+	user = defaultLoginUser()
+	if user == "" {
+		user = "USER"
+	}
+	return user, host
+}
+
+func printSplitEnrollNext(w io.Writer, p agent.Paths) {
+	user, host := thisMachineSCP()
+	req := p.EnrollRequest()
+	fmt.Fprintf(w, `
 Wrote %s
 
-What this is: a request (name + pubkey + token). The VPS has to approve it.
-This machine does not SSH to the VPS as admin on purpose.
+This file is a request (name + pubkey + token). The VPS must approve it.
+This machine does not SSH to the VPS as admin — a laptop that already can
+must do that step.
 
-Two computers — copy one file each way:
+On the LAPTOP (already: ssh USER@vps):
 
-  LAPTOP (already: ssh USER@your-vps)
-    scp this-machine:%s enroll-request.json
-    postern enroll-machine enroll-request.json > enroll-response.json
-    scp enroll-response.json this-machine:
+  scp %s@%s:%s enroll-request.json
+  postern enroll-machine enroll-request.json > enroll-response.json
+  scp enroll-response.json %s@%s:
 
-  THIS MACHINE
-    postern join --apply-response enroll-response.json
+Back on THIS machine:
 
-If this machine can already ssh to the VPS as admin, skip the copy:
-    postern join --submit --token TOKEN
-`, p.EnrollRequest(), p.EnrollRequest())
-	return nil
+  postern onboard --apply-response enroll-response.json
+
+One-box shortcut if THIS machine can already ssh USER@vps:
+
+  postern onboard --submit --token TOKEN
+
+Full walkthrough: ONBOARDING.md
+`, req, user, host, req, user, host)
 }
 
 func runApplyResponse(cmd *cobra.Command, path string) error {

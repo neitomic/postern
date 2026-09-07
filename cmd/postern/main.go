@@ -51,6 +51,7 @@ func newRoot() *cobra.Command {
 			fmt.Println(version.Version)
 		},
 	})
+	cmd.AddCommand(newOnboardCmd())
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newConfigCmd())
 	cmd.AddCommand(newInstallCmd())

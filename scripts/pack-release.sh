@@ -37,7 +37,7 @@ pack_one() {
 		cp "$ROOT/contrib/sshd/50-postern.conf" "$stage/contrib/sshd/"
 		cp "$ROOT/contrib/systemd/posternd.service" "$stage/contrib/systemd/"
 	fi
-	cp "$ROOT/LICENSE" "$ROOT/README.md" "$stage/"
+	cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/ONBOARDING.md" "$stage/"
 	tar -C "$stage" -czf "$DIST/postern_${VERSION}_${os}_${arch}.tar.gz" .
 	rm -rf "$stage"
 }

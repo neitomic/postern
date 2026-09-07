@@ -101,10 +101,75 @@ func TestRootHelpListsInstallAndConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"install", "uninstall", "config", "init"} {
+	for _, want := range []string{"onboard", "install", "uninstall", "config", "init"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestOnboardHelp(t *testing.T) {
+	cmd := newRoot()
+	cmd.SetArgs([]string{"onboard", "--help"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"--server", "--name", "--token", "--submit", "--apply-response", "ONBOARDING.md", "not for a nuc/pi"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("onboard help missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestOnboardWritesConfigWithoutToken(t *testing.T) {
+	_ = isolateHome(t)
+	cmd := newRoot()
+	cmd.SetArgs([]string{
+		"onboard",
+		"--server", "debian@vps.example.net",
+		"--name", "macbook",
+		"--login-user", "neo",
+		"--accept-host-key=false",
+		"--no-install",
+	})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("%v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "token issue") {
+		t.Fatalf("expected next-step token issue:\n%s", buf.String())
+	}
+	p, err := agent.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadClient(p.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server != "debian@vps.example.net" || cfg.Name != "macbook" || cfg.LoginUser != "neo" {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	if _, err := os.Stat(p.IdentityFile()); err != nil {
+		t.Fatalf("tunnel key: %v", err)
+	}
+}
+
+func TestOnboardRequiresServer(t *testing.T) {
+	_ = isolateHome(t)
+	cmd := newRoot()
+	cmd.SetArgs([]string{"onboard", "--no-install"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error")
 	}
 }
 
