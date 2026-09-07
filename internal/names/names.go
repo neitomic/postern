@@ -24,8 +24,9 @@ var reserved = map[string]struct{}{
 }
 
 var (
-	nameRE      = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
-	loginUserRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+	// SSH User: start letter/underscore; then a-z, digits, _, -, . (no space/newline).
+	loginUserRE = regexp.MustCompile(`^[a-z_][a-z0-9_.-]{0,31}$`)
 	// DNS labels / IPv4; no whitespace or ssh_config metacharacters (HostName interpolation).
 	hostnameRE = regexp.MustCompile(`(?i)^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 	tagRE      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)

@@ -72,9 +72,9 @@ func WriteEnrollRequest(p Paths, cfg config.Client, token string, force bool) (E
 	if err := names.Valid(name); err != nil {
 		return EnrollRequest{}, nil, err
 	}
-	login := strings.TrimSpace(cfg.LoginUser)
+	login := strings.ToLower(strings.TrimSpace(cfg.LoginUser))
 	if err := names.ValidLoginUser(login); err != nil {
-		return EnrollRequest{}, nil, err
+		return EnrollRequest{}, nil, fmt.Errorf("%w (pass --login-user or: postern config set login-user NAME)", err)
 	}
 	if err := EnsureKey(p.IdentityFile(), KeyComment(name)); err != nil {
 		return EnrollRequest{}, nil, err

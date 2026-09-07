@@ -70,6 +70,8 @@ func TestValidLoginUser(t *testing.T) {
 		"debian",
 		"user_name",
 		"user-name",
+		"user.name",
+		"first.last",
 		"_abc",
 		"a" + strings.Repeat("x", 31),
 	}
@@ -84,7 +86,7 @@ func TestValidLoginUser(t *testing.T) {
 		"Neo",
 		"1user",
 		"-user",
-		"user.name",
+		".user",
 		"user name",
 		"a" + strings.Repeat("x", 32),
 		"root\n",

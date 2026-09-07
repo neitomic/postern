@@ -97,9 +97,14 @@ Use this on a **laptop** that already has admin SSH to the VPS. Do **not** use
 postern onboard \
   --server debian@YOUR_VPS \
   --name macbook \
+  --login-user "$(id -un | tr '[:upper:]' '[:lower:]')" \
   --token psn_join_… \
   --submit
 ```
+
+`--login-user` is the Unix account on **this** machine (`id -un`), not `debian` on the VPS.
+It must match `^[a-z_][a-z0-9_.-]{0,31}$`. If you omit it, Postern uses the current
+login when that pattern matches.
 
 That, in order:
 
@@ -216,7 +221,7 @@ only). Backup that file first.
 
 | What you see | What it means |
 |---|---|
-| `invalid join token` / `token_expired` | Issue a new token (15 min, single use) |
+| `invalid login_user` | Set the Unix account on this box: `postern config set login-user $(id -un)` then onboard again. Must be lowercase `a-z`, `_`, `-`, `.`; not a leading digit |
 | `name_collision` | That name exists with a different key. `posternd hosts rekey` or `hosts rm`, then a new token |
 | `admin SSH to … failed` on `--submit` | This machine cannot `ssh debian@vps`. Use Path B |
 | enroll-machine hangs / permission denied | Laptop’s `server` is wrong, or you are not in group `postern` (open a **new** SSH session after bootstrap) |

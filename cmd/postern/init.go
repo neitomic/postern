@@ -79,6 +79,9 @@ func runInit(cmd *cobra.Command, server, name, loginUser string, localSSHPort in
 			cfg.LoginUser = u
 		}
 	}
+	if err := names.ValidLoginUser(cfg.LoginUser); err != nil {
+		return fmt.Errorf("%w (this machine's SSH account, e.g. id -un). Pass --login-user NAME", err)
+	}
 	if cmd.Flags().Changed("local-ssh-port") || !loaded {
 		if localSSHPort < 1 || localSSHPort > 65535 {
 			return fmt.Errorf("local-ssh-port %d out of range", localSSHPort)
