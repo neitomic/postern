@@ -70,11 +70,23 @@ login_exists() {
 	[ -n "$1" ] && getent passwd "$1" >/dev/null
 }
 
+ensure_root_home() {
+	# sshd StrictModes: if /root is not owned by uid 0, pubkey auth for root
+	# is ignored and the client only sees a password prompt.
+	own=$(stat -c '%u' /root)
+	if [ "$own" != 0 ]; then
+		echo "vps-bootstrap: warning: /root owned by uid $own (not root); resetting" >&2
+		chown root:root /root
+	fi
+}
+
 create_admin() {
 	name=$1
 	echo "vps-bootstrap: creating login $name"
-	useradd --create-home --shell /bin/bash --comment "Postern admin" "$name" || \
+	useradd --create-home --home-dir "/home/$name" --shell /bin/bash \
+		--comment "Postern admin" "$name" || \
 		die "useradd $name failed"
+	ensure_root_home()
 	if getent group sudo >/dev/null; then
 		usermod -aG sudo "$name"
 	fi
@@ -165,6 +177,7 @@ if [ ! -x "$SSHD" ]; then
 	SSHD=$(command -v sshd) || die "sshd not found"
 fi
 
+ensure_root_home
 echo "vps-bootstrap: admin=$ADMIN bin=$BIN"
 
 install -o root -g root -m 0755 "$BIN" /usr/bin/posternd
