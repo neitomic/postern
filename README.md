@@ -150,8 +150,11 @@ The script:
 - `groupadd --system postern` and `useradd --system` with shell `/usr/bin/posternd-shell`
 - `usermod -aG postern` that admin user
 - `/var/lib/postern` and `/etc/postern` `0750`; `authorized_keys` and `postern.db` `0640`
-- installs `contrib/sshd/50-postern.conf` (ends with `Match all`) and **runs `sshd -t`**
-  — **hard-fail, no `systemctl reload ssh`** if the config is invalid
+- installs `PermitUserEnvironment` in `sshd_config.d` and appends `Match User postern`
+  at the **end** of `/etc/ssh/sshd_config` (Debian `Include` is at the top; a Match
+  drop-in would wrap `UsePAM` / `PermitRootLogin` and can lock out root)
+- **runs `sshd -t`** and `sshd -T` for `root`, the admin user, and `postern`
+  — **hard-fail, no `systemctl reload ssh`** if Match leaked or the config is invalid
 - installs `contrib/systemd/posternd.service`, `systemctl enable --now posternd`
 - installs `/usr/bin/posternd` and a `posternd-shell` symlink
 - does **not** raise `MaxStartups`
@@ -159,6 +162,20 @@ The script:
 Then open a **new** SSH session as the admin user so `SO_PEERGROUPS` sees group
 `postern`. Edit `/etc/postern/posternd.toml` `vps_hostname` if the guessed DNS
 name is wrong and `systemctl restart posternd`.
+
+If SSH as `root` dies after bootstrap: use the provider console (or the admin
+login created with `--create`, same key as root) and:
+
+```bash
+rm -f /etc/ssh/sshd_config.d/50-postern.conf
+sed -i '/^# BEGIN POSTERN MATCH$/,/^# END POSTERN MATCH$/d' /etc/ssh/sshd_config
+sshd -t && systemctl restart ssh
+```
+
+`posternd.service` does not change sshd. The drop-in / Match block does. After
+recovery, `ssh debian@vps` (or whoever you passed to bootstrap) is the intended
+admin path; `PermitRootLogin no` from cloud-init can also appear on the first
+sshd reload.
 
 ## Client (operator laptop)
 

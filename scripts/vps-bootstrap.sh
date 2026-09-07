@@ -31,8 +31,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SSHD_FIXTURE="$ROOT/contrib/sshd/50-postern.conf"
 UNIT_FIXTURE="$ROOT/contrib/systemd/posternd.service"
 SSHD_DROPIN=/etc/ssh/sshd_config.d/50-postern.conf
+SSHD_CONFIG=/etc/ssh/sshd_config
 UNIT_DEST=/etc/systemd/system/posternd.service
 CONF_DEST=/etc/postern/posternd.toml
+POSTERN_MATCH_BEGIN="# BEGIN POSTERN MATCH"
+POSTERN_MATCH_END="# END POSTERN MATCH"
 
 CREATE=0
 ADMIN=""
@@ -228,43 +231,99 @@ else
 fi
 
 install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
-# Keep a pre-install copy so a failed sshd -t / leak check cannot leave a
-# drop-in that the next sshd start (reboot, unattended-upgrades) would load.
-SSHD_PREV=""
+# Debian Include is at the top of sshd_config. A Match block in a drop-in
+# wraps every later keyword (UsePAM, PermitRootLogin, …) and can lock out
+# root. Put only global keywords in the drop-in; append Match at EOF.
+SSHD_DROPIN_PREV=""
+SSHD_CONFIG_PREV=""
 if [ -f "$SSHD_DROPIN" ]; then
-	SSHD_PREV=$(mktemp)
-	cp -p "$SSHD_DROPIN" "$SSHD_PREV"
+	SSHD_DROPIN_PREV=$(mktemp)
+	cp -p "$SSHD_DROPIN" "$SSHD_DROPIN_PREV"
 fi
-install -o root -g root -m 0644 "$SSHD_FIXTURE" "$SSHD_DROPIN"
+if [ -f "$SSHD_CONFIG" ]; then
+	SSHD_CONFIG_PREV=$(mktemp)
+	cp -p "$SSHD_CONFIG" "$SSHD_CONFIG_PREV"
+else
+	die "missing $SSHD_CONFIG"
+fi
+
+GLOBALS=$(mktemp)
+MATCH=$(mktemp)
+awk -v globf="$GLOBALS" -v matchf="$MATCH" '
+	/^Match User postern$/ { p = 1 }
+	p { print > matchf; next }
+	{ print > globf }
+' "$SSHD_FIXTURE"
+grep -q '^Match User postern$' "$MATCH" || die "fixture missing Match User postern"
+grep -q '^Match all$' "$MATCH" || die "fixture missing Match all"
+grep -q '^PermitUserEnvironment' "$GLOBALS" || die "fixture missing PermitUserEnvironment"
+
+install -o root -g root -m 0644 "$GLOBALS" "$SSHD_DROPIN"
+rm -f "$GLOBALS"
+if grep -q "^${POSTERN_MATCH_BEGIN}$" "$SSHD_CONFIG"; then
+	sed -i "/^${POSTERN_MATCH_BEGIN}$/,/^${POSTERN_MATCH_END}$/d" "$SSHD_CONFIG"
+fi
+# Ensure the Match is the last thing parsed (Include-at-top cannot wrap it).
+printf '\n%s\n' "$POSTERN_MATCH_BEGIN" >>"$SSHD_CONFIG"
+cat "$MATCH" >>"$SSHD_CONFIG"
+printf '%s\n' "$POSTERN_MATCH_END" >>"$SSHD_CONFIG"
+rm -f "$MATCH"
+chmod 0644 "$SSHD_CONFIG"
+
 install -o root -g root -m 0644 "$UNIT_FIXTURE" "$UNIT_DEST"
 
-rollback_sshd_dropin() {
-	if [ -n "${SSHD_PREV-}" ] && [ -f "$SSHD_PREV" ]; then
-		cp -p "$SSHD_PREV" "$SSHD_DROPIN"
-		rm -f "$SSHD_PREV"
+rollback_sshd() {
+	if [ -n "${SSHD_DROPIN_PREV-}" ] && [ -f "$SSHD_DROPIN_PREV" ]; then
+		cp -p "$SSHD_DROPIN_PREV" "$SSHD_DROPIN"
+		rm -f "$SSHD_DROPIN_PREV"
 	else
 		rm -f "$SSHD_DROPIN"
+	fi
+	if [ -n "${SSHD_CONFIG_PREV-}" ] && [ -f "$SSHD_CONFIG_PREV" ]; then
+		cp -p "$SSHD_CONFIG_PREV" "$SSHD_CONFIG"
+		rm -f "$SSHD_CONFIG_PREV"
 	fi
 }
 
 abort_sshd() {
 	echo "vps-bootstrap: $1; not reloading ssh" >&2
-	rollback_sshd_dropin
+	rollback_sshd
 	exit 1
 }
 
-# Hard-fail: never reload ssh with a broken Match drop-in (can lock out $ADMIN).
+sshd_dump() {
+	"$SSHD" -T -C "user=${1},host=localhost,addr=127.0.0.1"
+}
+
+assert_not_tunnel_user() {
+	who=$1
+	dump=$(sshd_dump "$who") || abort_sshd "sshd -T for user=$who failed"
+	if echo "$dump" | grep -qi '^forcecommand /usr/bin/posternd-shell'; then
+		abort_sshd "Match leaked onto $who (ForceCommand posternd-shell)"
+	fi
+	if echo "$dump" | grep -qi '^permitty no$'; then
+		abort_sshd "Match leaked onto $who (PermitTTY no)"
+	fi
+	if echo "$dump" | grep -qi '^authorizedkeysfile .*/var/lib/postern/authorized_keys'; then
+		abort_sshd "Match leaked onto $who (AuthorizedKeysFile postern)"
+	fi
+}
+
+# Hard-fail: never reload ssh with a broken Match (can lock out root/$ADMIN).
 if ! "$SSHD" -t; then
 	abort_sshd "sshd -t failed"
 fi
-DUMP=$("$SSHD" -T -C "user=${ADMIN},host=localhost,addr=127.0.0.1") || \
-	abort_sshd "sshd -T for user=$ADMIN failed"
-if echo "$DUMP" | grep -qi '^forcecommand /usr/bin/posternd-shell'; then
-	abort_sshd "Match leaked onto $ADMIN (ForceCommand posternd-shell)"
+assert_not_tunnel_user root
+assert_not_tunnel_user "$ADMIN"
+POSTERN_DUMP=$(sshd_dump postern) || abort_sshd "sshd -T for user=postern failed"
+echo "$POSTERN_DUMP" | grep -qi '^forcecommand /usr/bin/posternd-shell' || \
+	abort_sshd "Match User postern did not set ForceCommand"
+ROOT_PRL=$(sshd_dump root | awk 'tolower($1)=="permitrootlogin"{print $2; exit}')
+if [ "$ROOT_PRL" = "no" ]; then
+	echo "vps-bootstrap: warning: PermitRootLogin no — SSH as $ADMIN, not root" >&2
 fi
-if [ -n "$SSHD_PREV" ]; then
-	rm -f "$SSHD_PREV"
-fi
+
+rm -f "$SSHD_DROPIN_PREV" "$SSHD_CONFIG_PREV"
 
 systemctl reload ssh 2>/dev/null || systemctl reload sshd
 
